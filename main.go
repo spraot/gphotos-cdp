@@ -57,6 +57,7 @@ var (
 	headlessFlag = flag.Bool("headless", false, "Start chrome browser in headless mode (cannot do authentication this way).")
 	jsonLogFlag  = flag.Bool("json", false, "output logs in JSON format")
 	logLevelFlag = flag.String("loglevel", "", "log level: debug, info, warn, error, fatal, panic")
+	workersFlag  = flag.Int("workers", runtime.NumCPU(), "number of workers to download files concurrently")
 )
 
 var tick = 500 * time.Millisecond
@@ -85,6 +86,8 @@ func main() {
 	if !*devFlag && *headlessFlag {
 		log.Fatal().Msg("-headless only allowed in dev mode")
 	}
+
+	log.Info().Msgf("Running with %d workers", *workersFlag)
 
 	// Set XDG_CONFIG_HOME and XDG_CACHE_HOME to a temp dir to solve issue in newer versions of Chromium
 	if os.Getenv("XDG_CONFIG_HOME") == "" {
@@ -727,7 +730,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 			return nil
 		}
 
-		dm := NewDownloadManager(ctx, s, 5)
+		dm := NewDownloadManager(ctx, s, *workersFlag)
 		listenNavEvents(ctx)
 
 		n := 0
@@ -777,7 +780,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 
 				log.Debug().Msgf("Waiting for download of %v to start", imageId)
 				<-readyForNext
-				for len(activeDownloads) > 0 {
+				for len(activeDownloads) >= *workersFlag {
 					// Wait for some downloads to complete before navigating
 					log.Debug().Msgf("There are %v active downloads, waiting for some to complete", len(activeDownloads))
 					time.Sleep(time.Second)
