@@ -24,7 +24,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -247,7 +246,7 @@ func (s *Session) cleanDlDir() error {
 // authenticated (or for 2 minutes to have elapsed).
 func (s *Session) login(ctx context.Context) error {
 	return chromedp.Run(ctx,
-		browser.SetDownloadBehavior(browser.SetDownloadBehaviorBehaviorAllow).WithDownloadPath(s.dlDirTmp),
+		browser.SetDownloadBehavior(browser.SetDownloadBehaviorBehaviorAllowAndName).WithDownloadPath(s.dlDirTmp).WithEventsEnabled(true),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			log.Debug().Msg("pre-navigate")
 			return nil
@@ -539,7 +538,7 @@ func startDownload(ctx context.Context) error {
 	up.Type = input.KeyUp
 
 	for _, ev := range []*input.DispatchKeyEventParams{&down, &up} {
-		log.Debug().Msgf("Event: %+v", *ev)
+		log.Trace().Msgf("Event: %+v", *ev)
 
 		if err := ev.Do(ctx); err != nil {
 			return err
@@ -582,6 +581,13 @@ func (s *Session) getPhotoDate(ctx context.Context) (time.Time, error) {
 		}
 
 		log.Info().Msg("Date not visible, clicking on i button")
+		if n > 6 {
+			log.Warn().Msg("Date not visible after 3 tries, attempting to resolve by refreshing the page")
+			if err := chromedp.Reload().Do(ctx); err != nil {
+				return time.Time{}, err
+			}
+			time.Sleep(tick)
+		}
 		chromedp.Run(ctx,
 			chromedp.Click(`[aria-label="Open info"]`, chromedp.ByQuery, chromedp.AtLeast(0)),
 		)
@@ -598,83 +604,17 @@ func (s *Session) getPhotoDate(ctx context.Context) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
+	log.Debug().Msgf("Found date: %v", date)
 	return date, nil
 }
 
 // download starts the download of the currently viewed item, and on successful
 // completion saves its location as the most recent item downloaded. It returns
 // with an error if the download stops making any progress for more than a minute.
-func (s *Session) download(ctx context.Context, location string) (string, error) {
-	st := time.Now()
-
-	if err := startDownload(ctx); err != nil {
-		return "", err
-	}
-
-	var filename string
-	started := false
-	var fileSize int64
-	deadline := time.Now().Add(time.Minute)
-	for {
-		time.Sleep(tick)
-		if !started && time.Now().After(deadline) {
-			return "", fmt.Errorf("downloading in %q took too long to start", s.dlDirTmp)
-		}
-		if started && time.Now().After(deadline) {
-			return "", fmt.Errorf("hit deadline while downloading in %q", s.dlDirTmp)
-		}
-
-		entries, err := os.ReadDir(s.dlDirTmp)
-		if err != nil {
-			return "", err
-		}
-		var fileEntries []os.FileInfo
-		for _, v := range entries {
-			if v.IsDir() {
-				continue
-			}
-			info, err := v.Info()
-			if err != nil {
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				} else {
-					return "", err
-				}
-			}
-			fileEntries = append(fileEntries, info)
-		}
-		if len(fileEntries) < 1 {
-			continue
-		}
-		if len(fileEntries) > 1 {
-			return "", fmt.Errorf("more than one file (%d) in download dir %q", len(fileEntries), s.dlDirTmp)
-		}
-		if !started {
-			if len(fileEntries) > 0 {
-				started = true
-				deadline = time.Now().Add(time.Minute)
-			}
-		}
-		newFileSize := fileEntries[0].Size()
-		if newFileSize > fileSize {
-			// push back the timeout as long as we make progress
-			deadline = time.Now().Add(time.Minute)
-			fileSize = newFileSize
-		}
-		if !strings.HasSuffix(fileEntries[0].Name(), ".crdownload") {
-			// download is over
-			filename = fileEntries[0].Name()
-			break
-		}
-	}
-
-	log.Debug().Msgf("Download took %v", time.Since(st))
-
-	if err := markDone(s.dlDir, location); err != nil {
-		return "", err
-	}
-
-	return filename, nil
+func (s *Session) waitForDownload(_ context.Context, job *DownloadJob) error {
+	<-job.downloadDone
+	log.Debug().Msgf("Download took %v", time.Since(job.st))
+	return nil
 }
 
 func imageIdFromUrl(location string) (string, error) {
@@ -685,50 +625,49 @@ func imageIdFromUrl(location string) (string, error) {
 	return parts[4], nil
 }
 
-// moveDownload creates a directory in s.dlDir named of the item ID found in
-// location. It then moves dlFile in that directory. It returns the new path
-// of the moved file.
-func (s *Session) moveDownload(_ context.Context, dlFile, location string) (string, error) {
-	imageId, err := imageIdFromUrl(location)
-	if err != nil {
-		return "", err
-	}
-	newDir := filepath.Join(s.dlDir, imageId)
+// makeOutDir creates a directory in s.dlDir named of the item ID found in
+// location
+func (s *Session) makeOutDir(_ context.Context, job *DownloadJob) (string, error) {
+	newDir := filepath.Join(s.dlDir, job.imageId)
 	if err := os.MkdirAll(newDir, 0700); err != nil {
 		return "", err
 	}
-	newFile := filepath.Join(newDir, dlFile)
-	if err := os.Rename(filepath.Join(s.dlDirTmp, dlFile), newFile); err != nil {
-		return "", err
-	}
-	return newFile, nil
+	return newDir, nil
 }
 
-func (s *Session) dlAndMove(ctx context.Context, location string) ([]string, error) {
-	dlFile, err := s.download(ctx, location)
-	if err != nil {
-		return []string{""}, err
+func (s *Session) dlAndMove(ctx context.Context, job *DownloadJob) error {
+	if err := s.waitForDownload(ctx, job); err != nil {
+		return err
 	}
 
-	filepath, err := s.moveDownload(ctx, dlFile, location)
+	outDir, err := s.makeOutDir(ctx, job)
 	if err != nil {
-		return []string{""}, err
+		return err
 	}
 
-	if strings.HasSuffix(filepath, ".zip") {
-		return s.handleZip(ctx, filepath)
+	if strings.HasSuffix(job.suggestedFilename, ".zip") {
+		filepaths, err := s.handleZip(ctx, filepath.Join(s.dlDirTmp, job.suggestedFilename), outDir)
+		if err != nil {
+			return err
+		}
+		job.storedFiles = append(job.storedFiles, filepaths...)
 	} else {
-		return []string{filepath}, nil
+		newFile := filepath.Join(outDir, job.suggestedFilename)
+		if err := os.Rename(filepath.Join(s.dlDirTmp, job.dlFile), newFile); err != nil {
+			return err
+		}
+		job.storedFiles = append(job.storedFiles, newFile)
 	}
+
+	return nil
 }
 
 // handleZip handles the case where the currently item is a zip file. It extracts
 // each file in the zip file to the same folder, and then deletes the zip file.
-func (s *Session) handleZip(_ context.Context, zipfile string) ([]string, error) {
+func (s *Session) handleZip(_ context.Context, zipfile, outFolder string) ([]string, error) {
 	st := time.Now()
 	// unzip the file
-	zipdir := filepath.Dir(zipfile)
-	files, err := zip.Unzip(zipfile, zipdir)
+	files, err := zip.Unzip(zipfile, outFolder)
 	if err != nil {
 		return []string{""}, err
 	}
@@ -779,14 +718,17 @@ func listenNavEvents(ctx context.Context) {
 // recent) item is reached. Set a negative N to repeat until the end is reached.
 func (s *Session) navN(N int) func(context.Context) error {
 	return func(ctx context.Context) error {
-		n := 0
 		if N == 0 {
 			return nil
 		}
 
+		dm := NewDownloadManager(ctx, s, 5)
 		listenNavEvents(ctx)
 
+		n := 0
 		var location, prevLocation string
+		activeDownloads := make(map[string]*DownloadJob)
+
 		for {
 			if err := chromedp.Location(&location).Do(ctx); err != nil {
 				return err
@@ -800,25 +742,54 @@ func (s *Session) navN(N int) func(context.Context) error {
 			if err != nil {
 				return err
 			}
+
+			log.Debug().Msgf("Processing %v", imageId)
+
+			// Check if we need to download this item
 			entries, err := os.ReadDir(filepath.Join(s.dlDir, imageId))
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
+
 			if len(entries) == 0 {
-				// Local dir doesn't exist or is empty, continue downloading
-				filePaths, err := s.dlAndMove(ctx, location)
+				// Local dir doesn't exist or is empty, start downloading
+				readyForNext := make(chan bool)
+				job, err := dm.StartDownload(location, imageId, readyForNext)
 				if err != nil {
 					return err
 				}
-				if err := s.doFileDateUpdate(ctx, filePaths); err != nil {
-					return err
-				}
-				for _, f := range filePaths {
-					if err := doRun(f); err != nil {
+				activeDownloads[location] = job
+
+				if *fileDateFlag {
+					job.time, err = s.getPhotoDate(ctx)
+					if err != nil {
 						return err
 					}
 				}
+
+				log.Debug().Msgf("Waiting for download of %v to start", imageId)
+				<-readyForNext
+				for len(activeDownloads) > 5 {
+					// Wait for some downloads to complete before navigating
+					log.Debug().Msgf("There are %v active downloads, waiting for some to complete", len(activeDownloads))
+					time.Sleep(time.Second)
+				}
+			} else {
+				log.Debug().Msgf("Skipping %v, file already exists in download dir", imageId)
 			}
+
+			// Check completion of active downloads
+			for loc, job := range activeDownloads {
+				select {
+				case <-job.done:
+					delete(activeDownloads, loc)
+				case err := <-job.err:
+					return fmt.Errorf("download error for %s: %v", loc, err)
+				default:
+					// Download still in progress
+				}
+			}
+
 			n++
 			if N > 0 && n >= N {
 				break
@@ -831,26 +802,32 @@ func (s *Session) navN(N int) func(context.Context) error {
 				return fmt.Errorf("error at %v: %v", location, err)
 			}
 		}
+
+		// Wait for remaining downloads to complete
+		for loc, job := range activeDownloads {
+			select {
+			case <-job.done:
+				continue
+			case err := <-job.err:
+				return fmt.Errorf("download error for %s: %v", loc, err)
+			}
+		}
+
 		return nil
 	}
 }
 
 // doFileDateUpdate updates the file date of the downloaded files to the photo date
-func (s *Session) doFileDateUpdate(ctx context.Context, filePaths []string) error {
+func (s *Session) doFileDateUpdate(ctx context.Context, job *DownloadJob) error {
 	if !*fileDateFlag {
 		return nil
 	}
 
-	date, err := s.getPhotoDate(ctx)
-	if err != nil {
-		return err
-	}
-
-	for _, f := range filePaths {
-		if err := s.setFileDate(ctx, f, date); err != nil {
+	for _, f := range job.storedFiles {
+		if err := s.setFileDate(ctx, f, job.time); err != nil {
 			return err
 		}
-		log.Info().Msgf("downloaded %v with date %v", filepath.Base(f), date.Format(time.DateOnly))
+		log.Info().Msgf("downloaded %v with date %v", filepath.Base(f), job.time.Format(time.DateOnly))
 	}
 
 	return nil
