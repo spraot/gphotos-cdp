@@ -861,12 +861,19 @@ func (s *Session) doFileDateUpdate(ctx context.Context, job *DownloadJob) error 
 	}
 
 	timeTaken := <-job.timeTaken
+	storedFilenames := []string{}
 	for _, f := range job.storedFiles {
+		storedFilenames = append(storedFilenames, filepath.Base(f))
 		if err := s.setFileDate(ctx, f, timeTaken); err != nil {
 			return err
 		}
-		log.Info().Str("id", job.imageId).Msgf("downloaded %v with date %v", filepath.Base(f), timeTaken.Format(time.DateOnly))
 	}
+
+	log.Info().
+		Str("id", job.imageId).
+		Str("suggestedFilename", job.suggestedFilename).
+		Int("processingTime", int(time.Since(job.st).Milliseconds())).
+		Msgf("downloaded %v with date %v", strings.Join(storedFilenames, ", "), timeTaken.Format(time.DateOnly))
 
 	return nil
 }
