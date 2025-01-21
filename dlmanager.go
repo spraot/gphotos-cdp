@@ -21,6 +21,7 @@ type DownloadJob struct {
 	suggestedFilename string
 	storedFiles       []string
 	timeTaken         chan time.Time
+	originalFilename  chan string
 }
 
 type Download struct {
@@ -111,12 +112,13 @@ func (dm *DownloadManager) worker() {
 
 func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext chan bool) (*DownloadJob, error) {
 	job := &DownloadJob{
-		st:        time.Now(),
-		location:  location,
-		imageId:   imageId,
-		timeTaken: make(chan time.Time, 1),
-		done:      make(chan bool, 1),
-		err:       make(chan error, 1),
+		st:               time.Now(),
+		location:         location,
+		imageId:          imageId,
+		timeTaken:        make(chan time.Time, 1),
+		originalFilename: make(chan string, 1),
+		done:             make(chan bool, 1),
+		err:              make(chan error, 1),
 	}
 
 	log.Debug().Msgf("Starting download of %s", imageId)

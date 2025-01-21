@@ -550,11 +550,12 @@ func startDownload(ctx context.Context) error {
 	return nil
 }
 
-// getPhotoDate gets the date from the currently viewed item.
+// getPhotoData gets the date and file name from the currently viewed item.
 // First we open the info panel by clicking on the "i" icon (aria-label="Open info")
 // if it is not already open. Then we read the date from the
 // aria-label="Date taken: ?????" field.
-func (s *Session) getPhotoDate(ctx context.Context) (time.Time, error) {
+func (s *Session) getPhotoData(ctx context.Context) (time.Time, string, error) {
+	var filename string
 	var dateStr string
 	var timeStr string
 	var tzStr string
@@ -564,31 +565,34 @@ func (s *Session) getPhotoDate(ctx context.Context) (time.Time, error) {
 	var n = 0
 	for {
 		n++
+		var filenameNodes []*cdp.Node
 		var dateNodes []*cdp.Node
 		var timeNodes []*cdp.Node
 		var tzNodes []*cdp.Node
-		log.Debug().Msg("Extracting photo date text")
+		log.Debug().Msg("Extracting photo date text and original file name")
 
 		if err := chromedp.Run(ctx,
+			chromedp.Nodes(`[aria-label^="Filename:"]`, &filenameNodes, chromedp.ByQuery, chromedp.AtLeast(0)),
 			chromedp.Nodes(`[aria-label^="Date taken:"]`, &dateNodes, chromedp.ByQuery, chromedp.AtLeast(0)),
 			chromedp.Nodes(`[aria-label^="Date taken:"] + div [aria-label^="Time taken:`, &timeNodes, chromedp.ByQuery, chromedp.AtLeast(0)),
 			chromedp.Nodes(`[aria-label^="Date taken:"] + div [aria-label^="GMT"]`, &tzNodes, chromedp.ByQuery, chromedp.AtLeast(0)),
 		); err != nil {
-			return time.Time{}, err
+			return time.Time{}, "", err
 		}
 
-		if len(dateNodes) > 0 && len(timeNodes) > 0 && len(tzNodes) > 0 {
+		if len(dateNodes) > 0 && len(timeNodes) > 0 && len(tzNodes) > 0 && len(filenameNodes) > 0 {
+			filename = strings.TrimPrefix(filenameNodes[0].AttributeValue("aria-label"), "Filename: ")
 			dateStr = strings.TrimPrefix(dateNodes[0].AttributeValue("aria-label"), "Date taken: ")
 			timeStr = strings.TrimPrefix(timeNodes[0].AttributeValue("aria-label"), "Time taken: ")
 			tzStr = tzNodes[0].AttributeValue("aria-label")
 			break
 		}
 
-		log.Info().Msg("Date not visible, clicking on i button")
+		log.Info().Msg("Date and filename not visible, clicking on i button")
 		if n > 6 {
-			log.Warn().Msg("Date not visible after 3 tries, attempting to resolve by refreshing the page")
+			log.Warn().Msg("Date and filename  not visible after 3 tries, attempting to resolve by refreshing the page")
 			if err := chromedp.Reload().Do(ctx); err != nil {
-				return time.Time{}, err
+				return time.Time{}, "", err
 			}
 			time.Sleep(tick)
 		}
@@ -597,7 +601,7 @@ func (s *Session) getPhotoDate(ctx context.Context) (time.Time, error) {
 		)
 		select {
 		case <-timeout.C:
-			return time.Time{}, errors.New("timeout waiting for date to appear")
+			return time.Time{}, "", errors.New("timeout waiting for date to appear")
 		case <-time.After(time.Duration(n) * tick):
 		}
 	}
@@ -607,13 +611,18 @@ func (s *Session) getPhotoDate(ctx context.Context) (time.Time, error) {
 			return r
 		}
 		return -1
-	}, dateStr+" "+timeStr+" "+tzStr)
-	date, err := time.Parse("Jan 2, 2006 Mon, 3:04PM MST:00", datetimeStr)
+	}, dateStr+" "+timeStr) + " " + strings.Map(func(r rune) rune {
+		if (r >= '0' && r <= '9') || r == '+' || r == '-' {
+			return r
+		}
+		return -1
+	}, tzStr)
+	date, err := time.Parse("Jan 2, 2006 Mon, 3:04PM Z0700", datetimeStr)
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, "", err
 	}
 	log.Debug().Msgf("Found date: %v", date)
-	return date, nil
+	return date, filename, nil
 }
 
 // download starts the download of the currently viewed item, and on successful
@@ -653,14 +662,21 @@ func (s *Session) dlAndMove(ctx context.Context, job *DownloadJob) error {
 		return err
 	}
 
-	if strings.HasSuffix(job.suggestedFilename, ".zip") {
-		filepaths, err := s.handleZip(ctx, filepath.Join(s.dlDirTmp, job.suggestedFilename), outDir)
+	var filename string
+	if job.suggestedFilename != "download" {
+		filename = job.suggestedFilename
+	} else {
+		filename = <-job.originalFilename
+	}
+
+	if strings.HasSuffix(filename, ".zip") {
+		filepaths, err := s.handleZip(ctx, filepath.Join(s.dlDirTmp, filename), outDir)
 		if err != nil {
 			return err
 		}
 		job.storedFiles = append(job.storedFiles, filepaths...)
 	} else {
-		newFile := filepath.Join(outDir, job.suggestedFilename)
+		newFile := filepath.Join(outDir, filename)
 		if err := os.Rename(filepath.Join(s.dlDirTmp, job.dlFile), newFile); err != nil {
 			return err
 		}
@@ -770,11 +786,12 @@ func (s *Session) navN(N int) func(context.Context) error {
 
 				if *fileDateFlag {
 					go func() {
-						timeTaken, err := s.getPhotoDate(ctx)
+						timeTaken, originalFilename, err := s.getPhotoData(ctx)
 						if err != nil {
 							job.err <- err
 						}
 						job.timeTaken <- timeTaken
+						job.originalFilename <- originalFilename
 					}()
 				}
 
