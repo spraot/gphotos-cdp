@@ -105,12 +105,6 @@ func (dm *DownloadManager) worker() {
 			}
 		}
 
-		// Mark as done only after successful processing
-		if err := markDone(dm.session.dlDir, job.location); err != nil {
-			job.err <- err
-			continue
-		}
-
 		job.done <- true
 	}
 }

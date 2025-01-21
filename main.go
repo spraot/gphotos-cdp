@@ -773,21 +773,21 @@ func (s *Session) navN(N int) func(context.Context) error {
 					// Wait for some downloads to complete before navigating
 					log.Debug().Msgf("There are %v active downloads, waiting for some to complete", len(activeDownloads))
 					time.Sleep(time.Second)
+					if err := s.checkJobStates(activeDownloads); err != nil {
+						return err
+					}
 				}
 			} else {
 				log.Debug().Msgf("Skipping %v, file already exists in download dir", imageId)
+				job := &DownloadJob{
+					done: make(chan bool, 1),
+				}
+				job.done <- true
+				activeDownloads[location] = job
 			}
 
-			// Check completion of active downloads
-			for loc, job := range activeDownloads {
-				select {
-				case <-job.done:
-					delete(activeDownloads, loc)
-				case err := <-job.err:
-					return fmt.Errorf("download error for %s: %v", loc, err)
-				default:
-					// Download still in progress
-				}
+			if err := s.checkJobStates(activeDownloads); err != nil {
+				return err
 			}
 
 			n++
@@ -804,17 +804,42 @@ func (s *Session) navN(N int) func(context.Context) error {
 		}
 
 		// Wait for remaining downloads to complete
-		for loc, job := range activeDownloads {
-			select {
-			case <-job.done:
-				continue
-			case err := <-job.err:
-				return fmt.Errorf("download error for %s: %v", loc, err)
+		for {
+			if err := s.checkJobStates(activeDownloads); err != nil {
+				return err
 			}
+			if len(activeDownloads) == 0 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 
 		return nil
 	}
+}
+
+func (s *Session) checkJobStates(activeDownloads map[string]*DownloadJob) error {
+	allDone := true
+	for loc, job := range activeDownloads {
+		select {
+		case <-job.done:
+			job.done <- true
+			if allDone {
+				// Mark as done only if all previous downloads are done
+				if err := markDone(s.dlDir, loc); err != nil {
+					job.err <- err
+					continue
+				}
+				delete(activeDownloads, loc)
+			}
+		case err := <-job.err:
+			return fmt.Errorf("download error for %s: %v", loc, err)
+		default:
+			// Download still in progress
+			allDone = false
+		}
+	}
+	return nil
 }
 
 // doFileDateUpdate updates the file date of the downloaded files to the photo date
