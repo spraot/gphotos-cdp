@@ -14,13 +14,13 @@ type DownloadJob struct {
 	st                time.Time
 	location          string
 	imageId           string
-	time              time.Time
 	downloadDone      chan bool
 	done              chan bool
 	err               chan error
 	dlFile            string
 	suggestedFilename string
 	storedFiles       []string
+	timeTaken         chan time.Time
 }
 
 type Download struct {
@@ -51,7 +51,7 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 	log.Debug().Msg("Starting download manager")
 	chromedp.ListenTarget(ctx, func(v interface{}) {
 		if ev, ok := v.(*browser.EventDownloadWillBegin); ok {
-			log.Debug().Msgf("Event: Download of %s started", ev.SuggestedFilename)
+			log.Trace().Msgf("Event: Download of %s started", ev.SuggestedFilename)
 			done := make(chan bool)
 			download := Download{
 				suggestedFilename: ev.SuggestedFilename,
@@ -111,12 +111,12 @@ func (dm *DownloadManager) worker() {
 
 func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext chan bool) (*DownloadJob, error) {
 	job := &DownloadJob{
-		st:       time.Now(),
-		location: location,
-		imageId:  imageId,
-		time:     time.Time{},
-		done:     make(chan bool, 1),
-		err:      make(chan error, 1),
+		st:        time.Now(),
+		location:  location,
+		imageId:   imageId,
+		timeTaken: make(chan time.Time, 1),
+		done:      make(chan bool, 1),
+		err:       make(chan error, 1),
 	}
 
 	log.Debug().Msgf("Starting download of %s", imageId)

@@ -555,6 +555,7 @@ func (s *Session) getPhotoDate(ctx context.Context) (time.Time, error) {
 	var dateStr string
 	var timeStr string
 	var tzStr string
+	timeout := time.NewTimer(30 * time.Second)
 
 	// check if element [aria-label^="Date taken:"] is visible, if not click i button
 	var n = 0
@@ -591,7 +592,11 @@ func (s *Session) getPhotoDate(ctx context.Context) (time.Time, error) {
 		chromedp.Run(ctx,
 			chromedp.Click(`[aria-label="Open info"]`, chromedp.ByQuery, chromedp.AtLeast(0)),
 		)
-		time.Sleep(time.Duration(n) * tick)
+		select {
+		case <-timeout.C:
+			return time.Time{}, errors.New("timeout waiting for date to appear")
+		case <-time.After(time.Duration(n) * tick):
+		}
 	}
 
 	var datetimeStr = strings.Map(func(r rune) rune {
@@ -761,15 +766,18 @@ func (s *Session) navN(N int) func(context.Context) error {
 				activeDownloads[location] = job
 
 				if *fileDateFlag {
-					job.time, err = s.getPhotoDate(ctx)
-					if err != nil {
-						return err
-					}
+					go func() {
+						timeTaken, err := s.getPhotoDate(ctx)
+						if err != nil {
+							job.err <- err
+						}
+						job.timeTaken <- timeTaken
+					}()
 				}
 
 				log.Debug().Msgf("Waiting for download of %v to start", imageId)
 				<-readyForNext
-				for len(activeDownloads) > 5 {
+				for len(activeDownloads) > 0 {
 					// Wait for some downloads to complete before navigating
 					log.Debug().Msgf("There are %v active downloads, waiting for some to complete", len(activeDownloads))
 					time.Sleep(time.Second)
@@ -823,7 +831,6 @@ func (s *Session) checkJobStates(activeDownloads map[string]*DownloadJob) error 
 	for loc, job := range activeDownloads {
 		select {
 		case <-job.done:
-			job.done <- true
 			if allDone {
 				// Mark as done only if all previous downloads are done
 				if err := markDone(s.dlDir, loc); err != nil {
@@ -831,6 +838,8 @@ func (s *Session) checkJobStates(activeDownloads map[string]*DownloadJob) error 
 					continue
 				}
 				delete(activeDownloads, loc)
+			} else {
+				job.done <- true
 			}
 		case err := <-job.err:
 			return fmt.Errorf("download error for %s: %v", loc, err)
@@ -848,11 +857,12 @@ func (s *Session) doFileDateUpdate(ctx context.Context, job *DownloadJob) error 
 		return nil
 	}
 
+	timeTaken := <-job.timeTaken
 	for _, f := range job.storedFiles {
-		if err := s.setFileDate(ctx, f, job.time); err != nil {
+		if err := s.setFileDate(ctx, f, timeTaken); err != nil {
 			return err
 		}
-		log.Info().Msgf("downloaded %v with date %v", filepath.Base(f), job.time.Format(time.DateOnly))
+		log.Info().Str("id", job.imageId).Msgf("downloaded %v with date %v", filepath.Base(f), timeTaken.Format(time.DateOnly))
 	}
 
 	return nil
