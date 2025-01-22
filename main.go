@@ -806,7 +806,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 				for len(activeDownloads) >= *workersFlag {
 					// Wait for some downloads to complete before navigating
 					log.Debug().Msgf("There are %v active downloads, waiting for some to complete", len(activeDownloads))
-					time.Sleep(time.Second)
+					time.Sleep(tick)
 					if err := s.checkJobStates(activeDownloads); err != nil {
 						return err
 					}
