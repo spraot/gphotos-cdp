@@ -621,7 +621,7 @@ func (s *Session) getPhotoData(ctx context.Context) (time.Time, string, error) {
 	if err != nil {
 		return time.Time{}, "", err
 	}
-	log.Debug().Msgf("Found date: %v", date)
+	log.Debug().Msgf("Found date: %v and original filename: %v for ", date, filename)
 	return date, filename, nil
 }
 
@@ -670,7 +670,7 @@ func (s *Session) dlAndMove(ctx context.Context, job *DownloadJob) error {
 	}
 
 	if strings.HasSuffix(filename, ".zip") {
-		filepaths, err := s.handleZip(ctx, filepath.Join(s.dlDirTmp, filename), outDir)
+		filepaths, err := s.handleZip(ctx, filepath.Join(s.dlDirTmp, job.dlFile), outDir)
 		if err != nil {
 			return err
 		}
