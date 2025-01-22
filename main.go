@@ -586,11 +586,17 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 			return time.Time{}, "", err
 		}
 
-		if len(dateNodes) > 0 && len(timeNodes) > 0 && len(tzNodes) > 0 && len(filenameNodes) > 0 {
+		if len(dateNodes) > 0 && len(timeNodes) > 0 && len(filenameNodes) > 0 {
 			filename = strings.TrimPrefix(filenameNodes[0].AttributeValue("aria-label"), "Filename: ")
 			dateStr = strings.TrimPrefix(dateNodes[0].AttributeValue("aria-label"), "Date taken: ")
 			timeStr = strings.TrimPrefix(timeNodes[0].AttributeValue("aria-label"), "Time taken: ")
-			tzStr = tzNodes[0].AttributeValue("aria-label")
+			if len(tzNodes) > 0 {
+				tzStr = tzNodes[0].AttributeValue("aria-label")
+			} else {
+				t := time.Now()
+				_, offset := t.Zone()
+				tzStr = fmt.Sprintf("%+03d%02d", offset/3600, (offset%3600)/60)
+			}
 			break
 		}
 
