@@ -62,7 +62,7 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 				dlTimeout:         time.NewTimer(120 * time.Second),
 			}
 
-			log.Debug().Str("imageId", ev.GUID).Msgf("Download of %s started", ev.SuggestedFilename)
+			log.Debug().Str("GUID", ev.GUID).Msgf("Download of %s started", ev.SuggestedFilename)
 			dm.newDownload <- dm.downloads[ev.GUID]
 		}
 	})
@@ -71,14 +71,13 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 		if ev, ok := v.(*browser.EventDownloadProgress); ok {
 			dl := dm.downloads[ev.GUID]
 			if ev.State == browser.DownloadProgressStateInProgress {
-				log.Trace().Msgf("Download of %s progress: %.2f%%", dl.suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
+				log.Trace().Str("GUID", ev.GUID).Msgf("Download of %s progress: %.2f%%", dl.suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
 				dl.dlTimeout.Reset(120 * time.Second)
 			}
 			if ev.State == browser.DownloadProgressStateCompleted {
 				dlTime := time.Since(dl.startTime).Milliseconds()
 				dlMb := ev.ReceivedBytes / 1024 / 1024
-				log.Debug().Msgf("Download of %s (%s) completed, downloaded %.2fMB in %dms (%.2fMB/s)",
-					ev.GUID,
+				log.Debug().Str("GUID", ev.GUID).Msgf("Download of %s completed, downloaded %.2fMB in %dms (%.2fMB/s)",
 					dl.suggestedFilename,
 					dlMb,
 					dlTime,
@@ -88,7 +87,7 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 				delete(dm.downloads, ev.GUID)
 			}
 			if ev.State == browser.DownloadProgressStateCanceled {
-				log.Debug().Msgf("Download of %s cancelled", ev.GUID)
+				log.Debug().Str("GUID", ev.GUID).Msgf("Download of %s cancelled", dl.suggestedFilename)
 				dl.done <- errors.New("download cancelled")
 				delete(dm.downloads, ev.GUID)
 			}

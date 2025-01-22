@@ -609,7 +609,8 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 		}
 		select {
 		case <-timeout.C:
-			return time.Time{}, "", fmt.Errorf("timeout waiting for date to appear for %v", imageId)
+			dlScreenshot(ctx, filepath.Join(s.dlDir, "error.png"))
+			return time.Time{}, "", fmt.Errorf("timeout waiting for date to appear for %v (see error.png)", imageId)
 		case <-time.After(time.Duration(n) * tick):
 		}
 	}
