@@ -603,7 +603,10 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 			if len(tzNodes) > 0 {
 				tzStr = tzNodes[0].AttributeValue("aria-label")
 			} else {
-				t := time.Now()
+				t, err := time.Parse("Jan 2, 2006", dateStr)
+				if err != nil {
+					t = time.Now()
+				}
 				_, offset := t.Zone()
 				tzStr = fmt.Sprintf("%+03d%02d", offset/3600, (offset%3600)/60)
 			}
