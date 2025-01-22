@@ -671,10 +671,10 @@ func (s *Session) dlAndMove(ctx context.Context, job *DownloadJob) error {
 	}
 
 	var filename string
-	if job.suggestedFilename != "download" {
+	if job.suggestedFilename != "download" && job.suggestedFilename != "" {
 		filename = job.suggestedFilename
 	} else {
-		filename = <-job.originalFilename
+		filename = job.originalFilename
 	}
 
 	if strings.HasSuffix(filename, ".zip") {
@@ -792,25 +792,10 @@ func (s *Session) navN(N int) func(context.Context) error {
 				}
 				activeDownloads[location] = job
 
-				if *fileDateFlag {
-					go func() {
-						timeTaken, originalFilename, err := s.getPhotoData(ctx, imageId)
-						if err != nil {
-							job.err <- err
-						}
-						job.timeTaken <- timeTaken
-						job.originalFilename <- originalFilename
-						job.foundData <- true
-					}()
-				}
-
 				if len(readyForNext) == 0 {
 					log.Debug().Msgf("Waiting for download of %v to start", imageId)
 				}
 				<-readyForNext
-				if *fileDateFlag {
-					<-job.foundData
-				}
 				for len(activeDownloads) >= *workersFlag {
 					// Wait for some downloads to complete before navigating
 					log.Debug().Msgf("There are %v active downloads, waiting for some to complete", len(activeDownloads))
@@ -891,11 +876,10 @@ func (s *Session) doFileDateUpdate(ctx context.Context, job *DownloadJob) error 
 		return nil
 	}
 
-	timeTaken := <-job.timeTaken
 	storedFilenames := []string{}
 	for _, f := range job.storedFiles {
 		storedFilenames = append(storedFilenames, filepath.Base(f))
-		if err := s.setFileDate(ctx, f, timeTaken); err != nil {
+		if err := s.setFileDate(ctx, f, job.timeTaken); err != nil {
 			return err
 		}
 	}
@@ -904,7 +888,7 @@ func (s *Session) doFileDateUpdate(ctx context.Context, job *DownloadJob) error 
 		Str("id", job.imageId).
 		Str("suggestedFilename", job.suggestedFilename).
 		Int("processingTime", int(time.Since(job.st).Milliseconds())).
-		Msgf("downloaded %v with date %v", strings.Join(storedFilenames, ", "), timeTaken.Format(time.DateOnly))
+		Msgf("downloaded %v with date %v", strings.Join(storedFilenames, ", "), job.timeTaken.Format(time.DateOnly))
 
 	return nil
 }

@@ -20,9 +20,8 @@ type DownloadJob struct {
 	dlFile            string
 	suggestedFilename string
 	storedFiles       []string
-	timeTaken         chan time.Time
-	originalFilename  chan string
-	foundData         chan bool
+	timeTaken         time.Time
+	originalFilename  string
 }
 
 type Download struct {
@@ -132,15 +131,12 @@ func (dm *DownloadManager) worker() {
 
 func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext chan bool) (*DownloadJob, error) {
 	job := &DownloadJob{
-		st:               time.Now(),
-		location:         location,
-		imageId:          imageId,
-		timeTaken:        make(chan time.Time, 1),
-		originalFilename: make(chan string, 1),
-		foundData:        make(chan bool, 1),
-		done:             make(chan bool, 1),
-		err:              make(chan error, 1),
-		downloadDone:     make(chan bool, 1),
+		st:           time.Now(),
+		location:     location,
+		imageId:      imageId,
+		done:         make(chan bool, 1),
+		err:          make(chan error, 1),
+		downloadDone: make(chan bool, 1),
 	}
 
 	log.Debug().Msgf("Starting download of %s", imageId)
@@ -173,6 +169,14 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 					job.err <- errors.New("timeout waiting for download progress")
 				}
 			}()
+
+			if *fileDateFlag {
+				var err error
+				job.timeTaken, job.originalFilename, err = dm.session.getPhotoData(dm.ctx, imageId)
+				if err != nil {
+					job.err <- err
+				}
+			}
 
 			dm.jobs <- job
 			readyForNext <- true
