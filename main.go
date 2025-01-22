@@ -304,6 +304,9 @@ func dlScreenshot(ctx context.Context, filePath string) chromedp.Tasks {
 // 2) if the last session marked what was the most recent downloaded photo, it navigates to it
 // 3) otherwise it jumps to the end of the timeline (i.e. the oldest photo)
 func (s *Session) firstNav(ctx context.Context) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	if err := s.setFirstItem(ctx); err != nil {
 		return err
 	}
@@ -395,6 +398,9 @@ func (s *Session) setFirstItem(ctx context.Context) error {
 func (s *Session) navToEnd(ctx context.Context) error {
 	// try jumping to the end of the page. detect we are there and have stopped
 	// moving when two consecutive screenshots are identical.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	var previousScr, scr []byte
 	for {
 		chromedp.KeyEvent(kb.PageDown).Do(ctx)
@@ -490,7 +496,7 @@ func navLeft(ctx context.Context) error {
 	muNavWaiting.Lock()
 	navWaiting = false
 	muNavWaiting.Unlock()
-	log.Debug().Msgf("navLeft took %v", time.Since(st))
+	log.Debug().Msgf("navLeft took %dms", time.Since(st).Milliseconds())
 	return nil
 }
 
@@ -630,7 +636,7 @@ func (s *Session) getPhotoData(ctx context.Context) (time.Time, string, error) {
 // with an error if the download stops making any progress for more than a minute.
 func (s *Session) waitForDownload(_ context.Context, job *DownloadJob) error {
 	<-job.downloadDone
-	log.Debug().Msgf("Download took %v", time.Since(job.st))
+	log.Debug().Msgf("Download took %dms", time.Since(job.st).Milliseconds())
 	return nil
 }
 

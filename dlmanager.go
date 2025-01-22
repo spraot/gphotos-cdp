@@ -27,7 +27,9 @@ type DownloadJob struct {
 type Download struct {
 	suggestedFilename string
 	filename          string
-	done              chan bool
+	success           chan bool
+	done              chan error
+	dlTimeout         *time.Timer
 }
 
 type DownloadManager struct {
@@ -53,15 +55,16 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 	chromedp.ListenTarget(ctx, func(v interface{}) {
 		if ev, ok := v.(*browser.EventDownloadWillBegin); ok {
 			log.Trace().Msgf("Event: Download of %s started", ev.SuggestedFilename)
-			done := make(chan bool)
 			download := Download{
 				suggestedFilename: ev.SuggestedFilename,
 				filename:          ev.GUID,
-				done:              done,
+				success:           make(chan bool),
+				done:              make(chan error),
+				dlTimeout:         time.NewTimer(60 * time.Second),
 			}
 			log.Trace().Msgf("Sending download of %s to worker", ev.SuggestedFilename)
-			dm.newDownload <- download
 			dm.downloads[ev.GUID] = download
+			dm.newDownload <- download
 		}
 	})
 
@@ -70,7 +73,14 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 			log.Trace().Msgf("Event: Download of %s progress: %.2f%%", dm.downloads[ev.GUID].suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
 			if ev.State == browser.DownloadProgressStateCompleted {
 				log.Debug().Msgf("Download of %s completed", ev.GUID)
-				dm.downloads[ev.GUID].done <- true
+				dm.downloads[ev.GUID].success <- true
+				dm.downloads[ev.GUID].done <- nil
+				dm.downloads[ev.GUID].dlTimeout.Reset(60 * time.Second)
+				delete(dm.downloads, ev.GUID)
+			}
+			if ev.State == browser.DownloadProgressStateCanceled {
+				log.Debug().Msgf("Download of %s cancelled", ev.GUID)
+				dm.downloads[ev.GUID].done <- errors.New("download cancelled")
 				delete(dm.downloads, ev.GUID)
 			}
 		}
@@ -129,20 +139,34 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 	}
 
 	go func() {
-		timeout := time.NewTimer(60 * time.Second)
-		defer timeout.Stop()
+		dlStartTimeout := time.NewTimer(60 * time.Second)
+		defer dlStartTimeout.Stop()
 
 		// for {
 		select {
 		case download := <-dm.newDownload:
-			log.Debug().Msgf("Download of %s started", download.suggestedFilename)
+			log.Debug().Msgf("Download of %s started in %dms", download.suggestedFilename, time.Since(job.st).Milliseconds())
 			job.dlFile = download.filename
 			job.suggestedFilename = download.suggestedFilename
-			job.downloadDone = download.done
+			job.downloadDone = download.success
 			dm.jobs <- job
 			readyForNext <- true
+
+			go func() {
+				select {
+				case err := <-download.done:
+					download.dlTimeout.Stop()
+					if err != nil {
+						job.err <- err
+					}
+					return
+				case <-download.dlTimeout.C:
+					job.err <- errors.New("timeout waiting for download progress")
+					return
+				}
+			}()
 			return
-		case <-timeout.C:
+		case <-dlStartTimeout.C:
 			job.err <- errors.New("timeout waiting for download to start")
 			readyForNext <- true
 			return
