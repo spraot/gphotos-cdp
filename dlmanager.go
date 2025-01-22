@@ -25,6 +25,7 @@ type DownloadJob struct {
 }
 
 type Download struct {
+	startTime         time.Time
 	suggestedFilename string
 	filename          string
 	success           chan bool
@@ -56,6 +57,7 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 		if ev, ok := v.(*browser.EventDownloadWillBegin); ok {
 			log.Trace().Msgf("Event: Download of %s started", ev.SuggestedFilename)
 			download := Download{
+				startTime:         time.Now(),
 				suggestedFilename: ev.SuggestedFilename,
 				filename:          ev.GUID,
 				success:           make(chan bool),
@@ -70,17 +72,25 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 
 	chromedp.ListenTarget(ctx, func(v interface{}) {
 		if ev, ok := v.(*browser.EventDownloadProgress); ok {
-			log.Trace().Msgf("Event: Download of %s progress: %.2f%%", dm.downloads[ev.GUID].suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
+			dl := dm.downloads[ev.GUID]
+			log.Trace().Msgf("Event: Download of %s progress: %.2f%%", dl.suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
 			if ev.State == browser.DownloadProgressStateCompleted {
-				log.Debug().Msgf("Download of %s completed", ev.GUID)
-				dm.downloads[ev.GUID].success <- true
-				dm.downloads[ev.GUID].done <- nil
-				dm.downloads[ev.GUID].dlTimeout.Reset(60 * time.Second)
+				dlTime := time.Since(dl.startTime).Milliseconds()
+				dlMb := ev.ReceivedBytes / 1024 / 1024
+				log.Debug().Msgf("Download of %s completed, downloaded %.2fMB in %dms (%.2fMB/s)",
+					ev.GUID,
+					dlMb,
+					dlTime,
+					dlMb/float64(dlTime)*1000,
+				)
+				dl.success <- true
+				dl.done <- nil
+				dl.dlTimeout.Reset(60 * time.Second)
 				delete(dm.downloads, ev.GUID)
 			}
 			if ev.State == browser.DownloadProgressStateCanceled {
 				log.Debug().Msgf("Download of %s cancelled", ev.GUID)
-				dm.downloads[ev.GUID].done <- errors.New("download cancelled")
+				dl.done <- errors.New("download cancelled")
 				delete(dm.downloads, ev.GUID)
 			}
 		}
