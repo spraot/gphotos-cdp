@@ -273,7 +273,7 @@ func (s *Session) login(ctx context.Context) error {
 					return nil
 				}
 				if *headlessFlag {
-					dlScreenshot(ctx, filepath.Join(s.dlDir, "error.png"))
+					dlScreenshot(ctx, filepath.Join(s.dlDir, "error"))
 					return errors.New("authentication not possible in -headless mode, see error.png (at " + location + ")")
 				}
 				log.Debug().Msgf("Not yet authenticated, at: %v", location)
@@ -293,9 +293,19 @@ func dlScreenshot(ctx context.Context, filePath string) chromedp.Tasks {
 	if err := chromedp.Run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
 		log.Fatal().Msg(err.Error())
 	}
-	if err := os.WriteFile(filePath, buf, os.FileMode(0666)); err != nil {
+	if err := os.WriteFile(filePath+".png", buf, os.FileMode(0666)); err != nil {
 		log.Fatal().Msg(err.Error())
 	}
+
+	// Dump the HTML to a file
+	var html string
+	if err := chromedp.Run(ctx, chromedp.OuterHTML("html", &html, chromedp.ByQuery)); err != nil {
+		log.Fatal().Msg(err.Error())
+	}
+	if err := os.WriteFile(filePath+".html", []byte(html), 0640); err != nil {
+		log.Fatal().Msg(err.Error())
+	}
+
 	return nil
 }
 
@@ -432,7 +442,7 @@ func (s *Session) navToLast(ctx context.Context) error {
 	for {
 		// Check if context canceled
 		if time.Now().After(deadline) {
-			dlScreenshot(ctx, filepath.Join(s.dlDir, "error.png"))
+			dlScreenshot(ctx, filepath.Join(s.dlDir, "error"))
 			return errors.New("timed out while finding last photo, see error.png")
 		}
 
@@ -615,7 +625,7 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 		}
 		select {
 		case <-timeout.C:
-			dlScreenshot(ctx, filepath.Join(s.dlDir, "error.png"))
+			dlScreenshot(ctx, filepath.Join(s.dlDir, "error"))
 			return time.Time{}, "", fmt.Errorf("timeout waiting for date to appear for %v (see error.png)", imageId)
 		case <-time.After(time.Duration(n) * tick):
 		}
