@@ -22,6 +22,7 @@ type DownloadJob struct {
 	storedFiles       []string
 	timeTaken         chan time.Time
 	originalFilename  chan string
+	foundData         chan bool
 }
 
 type Download struct {
@@ -54,34 +55,37 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 	log.Debug().Msg("Starting download manager")
 	chromedp.ListenTarget(ctx, func(v interface{}) {
 		if ev, ok := v.(*browser.EventDownloadWillBegin); ok {
-			download := Download{
+			dm.downloads[ev.GUID] = Download{
 				startTime:         time.Now(),
 				suggestedFilename: ev.SuggestedFilename,
 				filename:          ev.GUID,
 				done:              make(chan error),
 				dlTimeout:         time.NewTimer(120 * time.Second),
 			}
+
 			log.Debug().Msgf("Sending download of %s to worker", ev.SuggestedFilename)
-			dm.downloads[ev.GUID] = download
-			dm.newDownload <- download
+			dm.newDownload <- dm.downloads[ev.GUID]
 		}
 	})
 
 	chromedp.ListenTarget(ctx, func(v interface{}) {
 		if ev, ok := v.(*browser.EventDownloadProgress); ok {
 			dl := dm.downloads[ev.GUID]
-			log.Trace().Msgf("Download of %s progress: %.2f%%", dl.suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
+			if ev.State == browser.DownloadProgressStateInProgress {
+				log.Trace().Msgf("Download of %s progress: %.2f%%", dl.suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
+				dl.dlTimeout.Reset(120 * time.Second)
+			}
 			if ev.State == browser.DownloadProgressStateCompleted {
 				dlTime := time.Since(dl.startTime).Milliseconds()
 				dlMb := ev.ReceivedBytes / 1024 / 1024
-				log.Debug().Msgf("Download of %s completed, downloaded %.2fMB in %dms (%.2fMB/s)",
+				log.Debug().Msgf("Download of %s (%s) completed, downloaded %.2fMB in %dms (%.2fMB/s)",
 					ev.GUID,
+					dl.suggestedFilename,
 					dlMb,
 					dlTime,
 					dlMb/float64(dlTime)*1000,
 				)
 				dl.done <- nil
-				dl.dlTimeout.Reset(120 * time.Second)
 				delete(dm.downloads, ev.GUID)
 			}
 			if ev.State == browser.DownloadProgressStateCanceled {
@@ -133,6 +137,7 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 		imageId:          imageId,
 		timeTaken:        make(chan time.Time, 1),
 		originalFilename: make(chan string, 1),
+		foundData:        make(chan bool, 1),
 		done:             make(chan bool, 1),
 		err:              make(chan error, 1),
 		downloadDone:     make(chan bool, 1),

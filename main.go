@@ -566,6 +566,7 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 	var timeStr string
 	var tzStr string
 	timeout := time.NewTimer(30 * time.Second)
+	log.Debug().Str("imageId", imageId).Msg("Extracting photo date text and original file name")
 
 	// check if element [aria-label^="Date taken:"] is visible, if not click i button
 	var n = 0
@@ -575,7 +576,6 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 		var dateNodes []*cdp.Node
 		var timeNodes []*cdp.Node
 		var tzNodes []*cdp.Node
-		log.Debug().Str("imageId", imageId).Msg("Extracting photo date text and original file name")
 
 		if err := chromedp.Run(ctx,
 			chromedp.Nodes(`[aria-label^="Filename:"]`, &filenameNodes, chromedp.ByQuery, chromedp.AtLeast(0)),
@@ -597,13 +597,15 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 		log.Info().Msg("Date and filename not visible, clicking on i button")
 		if n%6 == 0 {
 			log.Warn().Msg("Date and filename  not visible after 3 tries, attempting to resolve by refreshing the page")
-			if err := chromedp.Reload().Do(ctx); err != nil {
+			if err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
 				return time.Time{}, "", err
 			}
 		} else {
-			chromedp.Run(ctx,
+			if err := chromedp.Run(ctx,
 				chromedp.Click(`[aria-label="Open info"]`, chromedp.ByQuery, chromedp.AtLeast(0)),
-			)
+			); err != nil {
+				return time.Time{}, "", err
+			}
 		}
 		select {
 		case <-timeout.C:
@@ -783,7 +785,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 
 			if len(entries) == 0 {
 				// Local dir doesn't exist or is empty, start downloading
-				readyForNext := make(chan bool)
+				readyForNext := make(chan bool, 1)
 				job, err := dm.StartDownload(location, imageId, readyForNext)
 				if err != nil {
 					return err
@@ -798,6 +800,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 						}
 						job.timeTaken <- timeTaken
 						job.originalFilename <- originalFilename
+						job.foundData <- true
 					}()
 				}
 
@@ -805,6 +808,9 @@ func (s *Session) navN(N int) func(context.Context) error {
 					log.Debug().Msgf("Waiting for download of %v to start", imageId)
 				}
 				<-readyForNext
+				if *fileDateFlag {
+					<-job.foundData
+				}
 				for len(activeDownloads) >= *workersFlag {
 					// Wait for some downloads to complete before navigating
 					log.Debug().Msgf("There are %v active downloads, waiting for some to complete", len(activeDownloads))
