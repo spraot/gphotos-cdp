@@ -47,7 +47,7 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 		maxWorkers:  maxWorkers,
 		session:     session,
 		ctx:         ctx,
-		newDownload: make(chan Download),
+		newDownload: make(chan Download, 1),
 		downloads:   make(map[string]Download),
 	}
 
@@ -58,11 +58,11 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 				startTime:         time.Now(),
 				suggestedFilename: ev.SuggestedFilename,
 				filename:          ev.GUID,
-				done:              make(chan error),
+				done:              make(chan error, 1),
 				dlTimeout:         time.NewTimer(120 * time.Second),
 			}
 
-			log.Debug().Msgf("Sending download of %s to worker", ev.SuggestedFilename)
+			log.Debug().Str("imageId", ev.GUID).Msgf("Download of %s started", ev.SuggestedFilename)
 			dm.newDownload <- dm.downloads[ev.GUID]
 		}
 	})
@@ -150,6 +150,14 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 		dlStartTimeout := time.NewTimer(120 * time.Second)
 		defer dlStartTimeout.Stop()
 
+		if *fileDateFlag {
+			var err error
+			job.timeTaken, job.originalFilename, err = dm.session.getPhotoData(dm.ctx, imageId)
+			if err != nil {
+				job.err <- err
+			}
+		}
+
 		select {
 		case download := <-dm.newDownload:
 			log.Debug().Msgf("Download of %s (%s) started in %dms", job.imageId, download.suggestedFilename, time.Since(job.st).Milliseconds())
@@ -169,14 +177,6 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 					job.err <- errors.New("timeout waiting for download progress")
 				}
 			}()
-
-			if *fileDateFlag {
-				var err error
-				job.timeTaken, job.originalFilename, err = dm.session.getPhotoData(dm.ctx, imageId)
-				if err != nil {
-					job.err <- err
-				}
-			}
 
 			dm.jobs <- job
 			readyForNext <- true
