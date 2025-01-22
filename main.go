@@ -594,9 +594,9 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 			break
 		}
 
-		log.Info().Msg("Date and filename not visible, clicking on i button")
+		log.Info().Str("imageId", imageId).Msg("Date and filename not visible, clicking on i button")
 		if n%6 == 0 {
-			log.Warn().Msg("Date and filename  not visible after 3 tries, attempting to resolve by refreshing the page")
+			log.Warn().Str("imageId", imageId).Msg("Date and filename not visible after 3 tries, attempting to resolve by refreshing the page")
 			if err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
 				return time.Time{}, "", err
 			}
@@ -629,17 +629,8 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 	if err != nil {
 		return time.Time{}, "", err
 	}
-	log.Debug().Msgf("Found date: %v and original filename: %v for ", date, filename)
+	log.Debug().Str("imageId", imageId).Msgf("Found date: %v and original filename: %v ", date, filename)
 	return date, filename, nil
-}
-
-// download starts the download of the currently viewed item, and on successful
-// completion saves its location as the most recent item downloaded. It returns
-// with an error if the download stops making any progress for more than a minute.
-func (s *Session) waitForDownload(_ context.Context, job *DownloadJob) error {
-	<-job.downloadDone
-	log.Debug().Msgf("Download took %dms", time.Since(job.st).Milliseconds())
-	return nil
 }
 
 func imageIdFromUrl(location string) (string, error) {
@@ -661,9 +652,8 @@ func (s *Session) makeOutDir(_ context.Context, job *DownloadJob) (string, error
 }
 
 func (s *Session) dlAndMove(ctx context.Context, job *DownloadJob) error {
-	if err := s.waitForDownload(ctx, job); err != nil {
-		return err
-	}
+	<-job.downloadDone
+	log.Debug().Msgf("Download took %dms", time.Since(job.st).Milliseconds())
 
 	outDir, err := s.makeOutDir(ctx, job)
 	if err != nil {
