@@ -55,14 +55,13 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 	log.Debug().Msg("Starting download manager")
 	chromedp.ListenTarget(ctx, func(v interface{}) {
 		if ev, ok := v.(*browser.EventDownloadWillBegin); ok {
-			log.Trace().Msgf("Event: Download of %s started", ev.SuggestedFilename)
 			download := Download{
 				startTime:         time.Now(),
 				suggestedFilename: ev.SuggestedFilename,
 				filename:          ev.GUID,
 				success:           make(chan bool),
 				done:              make(chan error),
-				dlTimeout:         time.NewTimer(60 * time.Second),
+				dlTimeout:         time.NewTimer(120 * time.Second),
 			}
 			log.Trace().Msgf("Sending download of %s to worker", ev.SuggestedFilename)
 			dm.downloads[ev.GUID] = download
@@ -73,7 +72,7 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 	chromedp.ListenTarget(ctx, func(v interface{}) {
 		if ev, ok := v.(*browser.EventDownloadProgress); ok {
 			dl := dm.downloads[ev.GUID]
-			log.Trace().Msgf("Event: Download of %s progress: %.2f%%", dl.suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
+			log.Trace().Msgf("Download of %s progress: %.2f%%", dl.suggestedFilename, (ev.ReceivedBytes/ev.TotalBytes)*100)
 			if ev.State == browser.DownloadProgressStateCompleted {
 				dlTime := time.Since(dl.startTime).Milliseconds()
 				dlMb := ev.ReceivedBytes / 1024 / 1024
@@ -85,7 +84,7 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 				)
 				dl.success <- true
 				dl.done <- nil
-				dl.dlTimeout.Reset(60 * time.Second)
+				dl.dlTimeout.Reset(120 * time.Second)
 				delete(dm.downloads, ev.GUID)
 			}
 			if ev.State == browser.DownloadProgressStateCanceled {
@@ -149,7 +148,7 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 	}
 
 	go func() {
-		dlStartTimeout := time.NewTimer(60 * time.Second)
+		dlStartTimeout := time.NewTimer(120 * time.Second)
 		defer dlStartTimeout.Stop()
 
 		// for {

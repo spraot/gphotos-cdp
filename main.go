@@ -783,7 +783,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 
 			if len(entries) == 0 {
 				// Local dir doesn't exist or is empty, start downloading
-				readyForNext := make(chan bool)
+				readyForNext := make(chan bool, 1)
 				job, err := dm.StartDownload(location, imageId, readyForNext)
 				if err != nil {
 					return err
@@ -801,7 +801,9 @@ func (s *Session) navN(N int) func(context.Context) error {
 					}()
 				}
 
-				log.Debug().Msgf("Waiting for download of %v to start", imageId)
+				if len(readyForNext) == 0 {
+					log.Debug().Msgf("Waiting for download of %v to start", imageId)
+				}
 				<-readyForNext
 				for len(activeDownloads) >= *workersFlag {
 					// Wait for some downloads to complete before navigating
