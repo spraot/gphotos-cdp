@@ -560,7 +560,7 @@ func startDownload(ctx context.Context) error {
 // First we open the info panel by clicking on the "i" icon (aria-label="Open info")
 // if it is not already open. Then we read the date from the
 // aria-label="Date taken: ?????" field.
-func (s *Session) getPhotoData(ctx context.Context) (time.Time, string, error) {
+func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, string, error) {
 	var filename string
 	var dateStr string
 	var timeStr string
@@ -575,7 +575,7 @@ func (s *Session) getPhotoData(ctx context.Context) (time.Time, string, error) {
 		var dateNodes []*cdp.Node
 		var timeNodes []*cdp.Node
 		var tzNodes []*cdp.Node
-		log.Debug().Msg("Extracting photo date text and original file name")
+		log.Debug().Str("imageId", imageId).Msg("Extracting photo date text and original file name")
 
 		if err := chromedp.Run(ctx,
 			chromedp.Nodes(`[aria-label^="Filename:"]`, &filenameNodes, chromedp.ByQuery, chromedp.AtLeast(0)),
@@ -595,19 +595,19 @@ func (s *Session) getPhotoData(ctx context.Context) (time.Time, string, error) {
 		}
 
 		log.Info().Msg("Date and filename not visible, clicking on i button")
-		if n > 6 {
+		if n%6 == 0 {
 			log.Warn().Msg("Date and filename  not visible after 3 tries, attempting to resolve by refreshing the page")
 			if err := chromedp.Reload().Do(ctx); err != nil {
 				return time.Time{}, "", err
 			}
-			time.Sleep(tick)
+		} else {
+			chromedp.Run(ctx,
+				chromedp.Click(`[aria-label="Open info"]`, chromedp.ByQuery, chromedp.AtLeast(0)),
+			)
 		}
-		chromedp.Run(ctx,
-			chromedp.Click(`[aria-label="Open info"]`, chromedp.ByQuery, chromedp.AtLeast(0)),
-		)
 		select {
 		case <-timeout.C:
-			return time.Time{}, "", errors.New("timeout waiting for date to appear")
+			return time.Time{}, "", fmt.Errorf("timeout waiting for date to appear for %v", imageId)
 		case <-time.After(time.Duration(n) * tick):
 		}
 	}
@@ -792,7 +792,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 
 				if *fileDateFlag {
 					go func() {
-						timeTaken, originalFilename, err := s.getPhotoData(ctx)
+						timeTaken, originalFilename, err := s.getPhotoData(ctx, imageId)
 						if err != nil {
 							job.err <- err
 						}
