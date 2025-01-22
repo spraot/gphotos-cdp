@@ -28,7 +28,6 @@ type Download struct {
 	startTime         time.Time
 	suggestedFilename string
 	filename          string
-	success           chan bool
 	done              chan error
 	dlTimeout         *time.Timer
 }
@@ -59,11 +58,10 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 				startTime:         time.Now(),
 				suggestedFilename: ev.SuggestedFilename,
 				filename:          ev.GUID,
-				success:           make(chan bool),
 				done:              make(chan error),
 				dlTimeout:         time.NewTimer(120 * time.Second),
 			}
-			log.Trace().Msgf("Sending download of %s to worker", ev.SuggestedFilename)
+			log.Debug().Msgf("Sending download of %s to worker", ev.SuggestedFilename)
 			dm.downloads[ev.GUID] = download
 			dm.newDownload <- download
 		}
@@ -82,7 +80,6 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 					dlTime,
 					dlMb/float64(dlTime)*1000,
 				)
-				dl.success <- true
 				dl.done <- nil
 				dl.dlTimeout.Reset(120 * time.Second)
 				delete(dm.downloads, ev.GUID)
@@ -138,6 +135,7 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 		originalFilename: make(chan string, 1),
 		done:             make(chan bool, 1),
 		err:              make(chan error, 1),
+		downloadDone:     make(chan bool, 1),
 	}
 
 	log.Debug().Msgf("Starting download of %s", imageId)
@@ -151,15 +149,11 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 		dlStartTimeout := time.NewTimer(120 * time.Second)
 		defer dlStartTimeout.Stop()
 
-		// for {
 		select {
 		case download := <-dm.newDownload:
-			log.Debug().Msgf("Download of %s started in %dms", download.suggestedFilename, time.Since(job.st).Milliseconds())
+			log.Debug().Msgf("Download of %s (%s) started in %dms", job.imageId, download.suggestedFilename, time.Since(job.st).Milliseconds())
 			job.dlFile = download.filename
 			job.suggestedFilename = download.suggestedFilename
-			job.downloadDone = download.success
-			dm.jobs <- job
-			readyForNext <- true
 
 			go func() {
 				select {
@@ -167,20 +161,20 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 					download.dlTimeout.Stop()
 					if err != nil {
 						job.err <- err
+					} else {
+						job.downloadDone <- true
 					}
-					return
 				case <-download.dlTimeout.C:
 					job.err <- errors.New("timeout waiting for download progress")
-					return
 				}
 			}()
-			return
+
+			dm.jobs <- job
+			readyForNext <- true
 		case <-dlStartTimeout.C:
 			job.err <- errors.New("timeout waiting for download to start")
 			readyForNext <- true
-			return
 		}
-		// }
 	}()
 
 	return job, nil

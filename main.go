@@ -783,7 +783,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 
 			if len(entries) == 0 {
 				// Local dir doesn't exist or is empty, start downloading
-				readyForNext := make(chan bool, 1)
+				readyForNext := make(chan bool)
 				job, err := dm.StartDownload(location, imageId, readyForNext)
 				if err != nil {
 					return err
