@@ -146,7 +146,7 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 	}
 
 	go func() {
-		dlStartTimeout1 := time.NewTimer(40 * time.Second)
+		dlStartTimeout1 := time.NewTimer(20 * time.Second)
 		defer dlStartTimeout1.Stop()
 		dlStartTimeout2 := time.NewTimer(120 * time.Second)
 		defer dlStartTimeout2.Stop()
@@ -185,8 +185,16 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 				return
 			case <-dlStartTimeout1.C:
 				log.Info().Msgf("Timeout waiting for download to start, retrying")
+				if err := chromedp.Run(dm.ctx, chromedp.Reload()); err != nil {
+					job.err <- err
+					readyForNext <- true
+					return
+				}
+				time.Sleep(5 * time.Second)
 				if err := startDownload(dm.ctx); err != nil {
 					job.err <- err
+					readyForNext <- true
+					return
 				}
 			case <-dlStartTimeout2.C:
 				job.err <- errors.New("timeout waiting for download to start")
