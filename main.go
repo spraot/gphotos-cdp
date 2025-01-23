@@ -566,6 +566,22 @@ func startDownload(ctx context.Context) error {
 	return nil
 }
 
+// startDownload2 clicks the icons to start the download of the currently
+// viewed item.
+func startDownload2(ctx context.Context) error {
+	if err := chromedp.Run(ctx,
+		chromedp.Click(`[aria-label="More options"]`, chromedp.ByQuery, chromedp.AtLeast(0)),
+	); err != nil {
+		return err
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Click(`[aria-label^="Download"]`, chromedp.ByQuery, chromedp.AtLeast(0)),
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
 // getPhotoData gets the date and file name from the currently viewed item.
 // First we open the info panel by clicking on the "i" icon (aria-label="Open info")
 // if it is not already open. Then we read the date from the
@@ -575,7 +591,7 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 	var dateStr string
 	var timeStr string
 	var tzStr string
-	timeout := time.NewTimer(30 * time.Second)
+	timeout := time.NewTimer(20 * time.Second)
 	log.Debug().Str("imageId", imageId).Msg("Extracting photo date text and original file name")
 
 	// check if element [aria-label^="Date taken:"] is visible, if not click i button
