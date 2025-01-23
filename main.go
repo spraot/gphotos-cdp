@@ -569,8 +569,10 @@ func startDownload(ctx context.Context) error {
 // startDownload2 clicks the icons to start the download of the currently
 // viewed item.
 func startDownload2(ctx context.Context) error {
+	var optionsNodes []*cdp.Node
 	if err := chromedp.Run(ctx,
-		chromedp.Click(`[aria-label="More options"]`, chromedp.ByQuery, chromedp.AtLeast(0)),
+		chromedp.Nodes(`[aria-label^="Filename:"]`, &optionsNodes, chromedp.ByQuery, chromedp.AtLeast(0)),
+		chromedp.MouseClickNode(optionsNodes[2]),
 	); err != nil {
 		return err
 	}
