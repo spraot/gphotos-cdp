@@ -603,6 +603,7 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 			if len(tzNodes) > 0 {
 				tzStr = tzNodes[0].AttributeValue("aria-label")
 			} else {
+				// If timezone is not visible, use current timezone (parse date to account for DST)
 				t, err := time.Parse("Jan 2, 2006", dateStr)
 				if err != nil {
 					t = time.Now()
@@ -628,7 +629,6 @@ func (s *Session) getPhotoData(ctx context.Context, imageId string) (time.Time, 
 		}
 		select {
 		case <-timeout.C:
-			dlScreenshot(ctx, filepath.Join(s.dlDir, "error"))
 			return time.Time{}, "", fmt.Errorf("timeout waiting for date to appear for %v (see error.png)", imageId)
 		case <-time.After(time.Duration(n) * tick):
 		}
@@ -824,6 +824,7 @@ func (s *Session) navN(N int) func(context.Context) error {
 			}
 
 			if err := s.checkJobStates(activeDownloads); err != nil {
+				dlScreenshot(ctx, filepath.Join(s.dlDir, "error"))
 				return err
 			}
 
