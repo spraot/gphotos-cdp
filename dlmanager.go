@@ -146,8 +146,10 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 	}
 
 	go func() {
-		dlStartTimeout := time.NewTimer(120 * time.Second)
-		defer dlStartTimeout.Stop()
+		dlStartTimeout1 := time.NewTimer(40 * time.Second)
+		defer dlStartTimeout1.Stop()
+		dlStartTimeout2 := time.NewTimer(120 * time.Second)
+		defer dlStartTimeout2.Stop()
 
 		if *fileDateFlag {
 			var err error
@@ -157,31 +159,40 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 			}
 		}
 
-		select {
-		case download := <-dm.newDownload:
-			log.Debug().Msgf("Download of %s (%s) started in %dms", job.imageId, download.suggestedFilename, time.Since(job.st).Milliseconds())
-			job.dlFile = download.filename
-			job.suggestedFilename = download.suggestedFilename
+		for {
+			select {
+			case download := <-dm.newDownload:
+				log.Debug().Msgf("Download of %s (%s) started in %dms", job.imageId, download.suggestedFilename, time.Since(job.st).Milliseconds())
+				job.dlFile = download.filename
+				job.suggestedFilename = download.suggestedFilename
 
-			go func() {
-				select {
-				case err := <-download.done:
-					download.dlTimeout.Stop()
-					if err != nil {
-						job.err <- err
-					} else {
-						job.downloadDone <- true
+				go func() {
+					select {
+					case err := <-download.done:
+						download.dlTimeout.Stop()
+						if err != nil {
+							job.err <- err
+						} else {
+							job.downloadDone <- true
+						}
+					case <-download.dlTimeout.C:
+						job.err <- errors.New("timeout waiting for download progress")
 					}
-				case <-download.dlTimeout.C:
-					job.err <- errors.New("timeout waiting for download progress")
-				}
-			}()
+				}()
 
-			dm.jobs <- job
-			readyForNext <- true
-		case <-dlStartTimeout.C:
-			job.err <- errors.New("timeout waiting for download to start")
-			readyForNext <- true
+				dm.jobs <- job
+				readyForNext <- true
+				return
+			case <-dlStartTimeout1.C:
+				log.Info().Msgf("Timeout waiting for download to start, retrying")
+				if err := startDownload(dm.ctx); err != nil {
+					job.err <- err
+				}
+			case <-dlStartTimeout2.C:
+				job.err <- errors.New("timeout waiting for download to start")
+				readyForNext <- true
+				return
+			}
 		}
 	}()
 
