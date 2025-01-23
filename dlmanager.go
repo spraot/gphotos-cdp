@@ -190,6 +190,7 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 					readyForNext <- true
 					return
 				}
+				log.Debug().Msg("Tried again, waiting for download to start")
 			case <-dlStartTimeout2.C:
 				job.err <- errors.New("timeout waiting for download to start")
 				readyForNext <- true
