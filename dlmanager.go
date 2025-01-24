@@ -62,7 +62,7 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 				dlTimeout:         time.NewTimer(120 * time.Second),
 			}
 
-			log.Debug().Str("GUID", ev.GUID).Msgf("Download of %s started", ev.SuggestedFilename)
+			log.Debug().Str("GUID", ev.GUID).Msgf("Download of %s started (EventDownloadWillBegin)", ev.SuggestedFilename)
 			dm.newDownload <- dm.downloads[ev.GUID]
 		}
 	})
@@ -84,7 +84,9 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 					dlMb/float64(dlTime)*1000,
 				)
 				dl.done <- nil
+				log.Trace().Str("GUID", ev.GUID).Msgf("Download of %s took %dms", dl.suggestedFilename, dlTime)
 				delete(dm.downloads, ev.GUID)
+				log.Trace().Str("GUID", ev.GUID).Msgf("Download of %s removed from download list", dl.suggestedFilename)
 			}
 			if ev.State == browser.DownloadProgressStateCanceled {
 				log.Debug().Str("GUID", ev.GUID).Msgf("Download of %s cancelled", dl.suggestedFilename)
@@ -104,14 +106,17 @@ func NewDownloadManager(ctx context.Context, session *Session, maxWorkers int) *
 
 func (dm *DownloadManager) worker() {
 	for job := range dm.jobs {
-		err := dm.session.dlAndMove(dm.ctx, job)
+		<-job.downloadDone
+		log.Debug().Msgf("Download took %dms", time.Since(job.st).Milliseconds())
+
+		err := dm.session.dlAndMove(job)
 		if err != nil {
 			job.err <- err
 			continue
 		}
 
 		// Update file dates before moving
-		if err := dm.session.doFileDateUpdate(dm.ctx, job); err != nil {
+		if err := dm.session.doFileDateUpdate(job); err != nil {
 			job.err <- err
 			continue
 		}
@@ -128,7 +133,7 @@ func (dm *DownloadManager) worker() {
 	}
 }
 
-func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext chan bool) (*DownloadJob, error) {
+func (dm *DownloadManager) StartJob(location, imageId string, readyForNext chan bool) *DownloadJob {
 	job := &DownloadJob{
 		st:           time.Now(),
 		location:     location,
@@ -138,27 +143,36 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 		downloadDone: make(chan bool, 1),
 	}
 
-	log.Debug().Msgf("Starting download of %s", imageId)
-
-	// Start download in the background
-	if err := startDownload(dm.ctx); err != nil {
-		return nil, err
-	}
-
 	go func() {
 		dlStartTimeout1 := time.NewTimer(25 * time.Second)
 		defer dlStartTimeout1.Stop()
 		dlStartTimeout2 := time.NewTimer(40 * time.Second)
 		defer dlStartTimeout2.Stop()
 
-		if *fileDateFlag {
-			var err error
-			job.timeTaken, job.originalFilename, err = dm.session.getPhotoData(dm.ctx, imageId)
-			if err != nil {
-				job.err <- err
-			}
+		log.Debug().Msgf("Starting download of %s", imageId)
+
+		// Start download in the background
+		if err := requestDownload2(dm.ctx); err != nil {
+			job.err <- err
+			return
 		}
 
+		// Get photo data in the background
+		donePhotoDataRead := make(chan bool, 1)
+		go func() {
+			if *fileDateFlag {
+				var err error
+				job.timeTaken, job.originalFilename, err = dm.session.getPhotoData(dm.ctx, imageId)
+				if err != nil {
+					job.err <- err
+					donePhotoDataRead <- true
+					return
+				}
+			}
+			donePhotoDataRead <- true
+		}()
+
+		log.Trace().Msg("Waiting for download to start")
 		for {
 			select {
 			case download := <-dm.newDownload:
@@ -180,12 +194,17 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 					}
 				}()
 
-				dm.jobs <- job
+				select {
+				case <-donePhotoDataRead:
+					dm.jobs <- job
+				case err := <-job.err:
+					job.err <- err
+				}
 				readyForNext <- true
 				return
 			case <-dlStartTimeout1.C:
 				log.Info().Msgf("Timeout waiting for download to start, trying again")
-				if err := startDownload2(dm.ctx); err != nil {
+				if err := requestDownload1(dm.ctx); err != nil {
 					job.err <- err
 					readyForNext <- true
 					return
@@ -199,5 +218,5 @@ func (dm *DownloadManager) StartDownload(location, imageId string, readyForNext 
 		}
 	}()
 
-	return job, nil
+	return job
 }
