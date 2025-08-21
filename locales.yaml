@@ -36,6 +36,7 @@ en:
     matchValue: "Video still is processing"
   videoStillProcessingStatusText: "Video is still processing &amp; can be downloaded later"
   noWebpageFoundText: "No webpage was found for the web address:"
+  notNow: "Not now"
   shortDayNames: 
     - "Sun"
     - "Mon"

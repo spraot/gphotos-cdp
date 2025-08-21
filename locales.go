@@ -34,6 +34,7 @@ type GPhotosLocale struct {
 	ShortDayNames                   []string       `yaml:"shortDayNames"`
 	LongDayNames                    []string       `yaml:"longDayNames"`
 	ShortMonthNames                 []string       `yaml:"shortMonthNames"`
+	NotNow                          string         `yaml:"notNow,omitempty"`
 }
 
 var locales map[string]GPhotosLocale = make(map[string]GPhotosLocale)
@@ -98,6 +99,7 @@ func initLocales() error {
 			ShortDayNames:                   []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"},
 			LongDayNames:                    []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"},
 			ShortMonthNames:                 []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"},
+			NotNow:                          "Not now",
 		}
 	}
 

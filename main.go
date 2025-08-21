@@ -459,6 +459,14 @@ func (s *Session) login(ctx context.Context) error {
 				if strings.Contains(location, "signin/rejected") {
 					return errors.New("google rejected automated login")
 				}
+				if strings.Contains(location, "signin/speedbump/passkeyenrollment") && loc.NotNow != "" {
+					// skip passkey enrollment, press "Not now" button
+					if err := chromedp.Click(`//button//span[contains(text(), loc.NotNow)]`, chromedp.BySearch).Do(ctx); err != nil {
+						return err
+					}
+					time.Sleep(tick)
+					continue
+				}
 				var nodes []*cdp.Node
 				email := os.Getenv("GPHOTOS_EMAIL")
 				if email != "" {
