@@ -183,6 +183,7 @@ func main() {
 	_loc, exists := locales[locale]
 	if !exists {
 		log.Warn().Msgf("your Google account is using unsupported locale %s, this is likely to cause issues. Please change account language to English (en) or another supported locale", locale)
+		loc = locales["en"]
 	} else {
 		log.Info().Msgf("using locale %s", locale)
 		loc = _loc
