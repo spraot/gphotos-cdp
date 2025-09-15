@@ -86,7 +86,7 @@ es:
     matchValue: "GMT"
   viewPreviousPhotoMatch:
     matchType: equals
-    matchValue: "Ver foto anterior"
+    matchValue: "Ver la foto anterior"
   moreOptionsLabel:
     matchType: equals
     matchValue: "Más opciones"
