@@ -122,7 +122,7 @@ func initLocales() error {
 			NoWebpageFoundText:              "No webpage was found for the web address:",
 			ShortDayNames:                   []string{"dom", "lun", "mar", "mié", "jue", "vie", "sáb"},
 			LongDayNames:                    []string{"domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"},
-			ShortMonthNames:                 []string{"ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"},
+			ShortMonthNames:                 []string{"ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"},
 		}
 	}
 
