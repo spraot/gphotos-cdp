@@ -75,12 +75,12 @@ es:
     matchValue: "Nombre del archivo:"
   dateLabel:
     matchType: startsWith
-    matchValue: "Fecha de captura:"
+    matchValue: "Fecha de realización:"
   today: "Today"
   yesterday: "Ayer"
   timeLabel:
     matchType: startsWith
-    matchValue: "Tiempo utilizado:"
+    matchValue: "Tiempo empleado:"
   tzLabel:
     matchType: startsWith
     matchValue: "GMT"
