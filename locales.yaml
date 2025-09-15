@@ -66,6 +66,74 @@ en:
     - "Oct"
     - "Nov"
     - "Dec"
+es:
+  selectAllPhotosLabel:
+    matchType: startsWith
+    matchValue: "Seleccionar todas las fotos desde"
+  fileNameLabel:
+    matchType: startsWith
+    matchValue: "Nombre del archivo:"
+  dateLabel:
+    matchType: startsWith
+    matchValue: "Fecha de captura:"
+  today: "Today"
+  yesterday: "Ayer"
+  timeLabel:
+    matchType: startsWith
+    matchValue: "Tiempo utilizado:"
+  tzLabel:
+    matchType: startsWith
+    matchValue: "GMT"
+  viewPreviousPhotoMatch:
+    matchType: equals
+    matchValue: "Ver foto anterior"
+  moreOptionsLabel:
+    matchType: equals
+    matchValue: "Más opciones"
+  downloadLabel:
+    matchType: equals
+    matchValue: "Descargar - Mayús+D"
+  downloadOriginalLabel:
+    matchType: equals
+    matchValue: "Descargar original"
+  openInfoMatch:
+    matchType: equals
+    matchValue: "Abrir información"
+  videoStillProcessingDialogLabel:
+    matchType: startsWith
+    matchValue: "Video still is processing"
+  videoStillProcessingStatusText: "Video is still processing &amp; can be downloaded later"
+  noWebpageFoundText: "No webpage was found for the web address:"
+  notNow: "Not now"
+  shortDayNames: 
+    - "dom"
+    - "lun"
+    - "mar"
+    - "mié"
+    - "jue"
+    - "vie"
+    - "sáb"
+  longDayNames:
+    - "domingo"
+    - "lunes"
+    - "martes"
+    - "miércoles"
+    - "jueves"
+    - "viernes"
+    - "sábado"
+  shortMonthNames:
+    - "ene"
+    - "feb"
+    - "mar"
+    - "abr"
+    - "may"
+    - "jun"
+    - "jul"
+    - "ago"
+    - "sep"
+    - "oct"
+    - "nov"
+    - "dic"
 es-419:
   selectAllPhotosLabel:
     matchType: startsWith
