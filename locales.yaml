@@ -69,7 +69,7 @@ en:
 es-419:
   selectAllPhotosLabel:
     matchType: startsWith
-    matchValue: "Select all photos from"
+    matchValue: "Seleccionar todas las fotos desde"
   fileNameLabel:
     matchType: startsWith
     matchValue: "Nombre del archivo:"

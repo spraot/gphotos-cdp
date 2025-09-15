@@ -105,7 +105,7 @@ func initLocales() error {
 
 	if _, exists := locales["es-419"]; !exists {
 		locales["es-419"] = GPhotosLocale{
-			SelectAllPhotosLabel:            NodeLabelMatch{"startsWith", "Alle foto's van"},
+			SelectAllPhotosLabel:            NodeLabelMatch{"startsWith", "Seleccionar todas las fotos desde"},
 			FileNameLabel:                   NodeLabelMatch{"startsWith", "Nombre del archivo:"},
 			DateLabel:                       NodeLabelMatch{"startsWith", "Fecha de captura:"},
 			Today:                           "Hoy",
