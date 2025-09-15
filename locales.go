@@ -114,7 +114,7 @@ func initLocales() error {
 			TzLabel:                         NodeLabelMatch{"startsWith", "GMT"},
 			ViewPreviousPhotoMatch:          NodeLabelMatch{"equals", "Ver la foto anterior"},
 			MoreOptionsLabel:                NodeLabelMatch{"equals", "Más opciones"},
-			DownloadLabel:                   NodeLabelMatch{"equals", "Descargar - Mayús+D"},
+			DownloadLabel:                   NodeLabelMatch{"equals", "Descargar - Mayús + D"},
 			DownloadOriginalLabel:           NodeLabelMatch{"equals", "Download original"},
 			OpenInfoMatch:                   NodeLabelMatch{"equals", "Abrir información"},
 			VideoStillProcessingDialogLabel: NodeLabelMatch{"startsWith", "Video still is processing"},

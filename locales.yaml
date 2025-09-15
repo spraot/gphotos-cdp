@@ -92,7 +92,7 @@ es:
     matchValue: "Más opciones"
   downloadLabel:
     matchType: equals
-    matchValue: "Descargar - Mayús+D"
+    matchValue: "Descargar - Mayús + D"
   downloadOriginalLabel:
     matchType: equals
     matchValue: "Descargar original"
