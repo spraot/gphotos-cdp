@@ -103,6 +103,29 @@ func initLocales() error {
 		}
 	}
 
+	if _, exists := locales["es-419"]; !exists {
+		locales["es-419"] = GPhotosLocale{
+			SelectAllPhotosLabel:            NodeLabelMatch{"startsWith", "Alle foto's van"},
+			FileNameLabel:                   NodeLabelMatch{"startsWith", "Nombre del archivo:"},
+			DateLabel:                       NodeLabelMatch{"startsWith", "Fecha de captura:"},
+			Today:                           "Hoy",
+			Yesterday:                       "Ayer",
+			TimeLabel:                       NodeLabelMatch{"startsWith", "Tiempo utilizado:"},
+			TzLabel:                         NodeLabelMatch{"startsWith", "GMT"},
+			ViewPreviousPhotoMatch:          NodeLabelMatch{"equals", "Ver foto anterior"},
+			MoreOptionsLabel:                NodeLabelMatch{"equals", "Más opciones"},
+			DownloadLabel:                   NodeLabelMatch{"equals", "Descargar - Mayús+D"},
+			DownloadOriginalLabel:           NodeLabelMatch{"equals", "Download original"},
+			OpenInfoMatch:                   NodeLabelMatch{"equals", "Abrir información"},
+			VideoStillProcessingDialogLabel: NodeLabelMatch{"startsWith", "Video still is processing"},
+			VideoStillProcessingStatusText:  "Video is still processing &amp; can be downloaded later",
+			NoWebpageFoundText:              "No webpage was found for the web address:",
+			ShortDayNames:                   []string{"dom", "lun", "mar", "mié", "jue", "vie", "sáb"},
+			LongDayNames:                    []string{"domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"},
+			ShortMonthNames:                 []string{"ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"},
+		}
+	}
+
 	if _, exists := locales["nl"]; !exists {
 		locales["nl"] = GPhotosLocale{
 			SelectAllPhotosLabel:            NodeLabelMatch{"startsWith", "Alle foto's van"},

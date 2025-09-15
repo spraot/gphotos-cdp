@@ -80,7 +80,7 @@ var (
 	execPathFlag    = flag.String("execpath", "", "path to Chrome/Chromium binary to use")
 )
 
-const gphotosUrl = "https://photos.google.com/?hl=en"
+const gphotosUrl = "https://photos.google.com"
 const tick = 500 * time.Millisecond
 const originalSuffix = "_original"
 
