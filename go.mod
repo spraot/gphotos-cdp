@@ -1,4 +1,4 @@
-module github.com/kriodoxis/gphotos-cdp
+module github.com/spraot/gphotos-cdp
 
 go 1.23
 
