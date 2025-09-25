@@ -460,7 +460,7 @@ func (s *Session) login(ctx context.Context) error {
 				if strings.Contains(location, "signin/shadowdisambiguate") {
 					// Option to continue with workspace account or private. If we see this, we assume the user wants to
 					// use the first account listed. We can improve this later
-					if err := chromedp.Click(`div[data-profileindex=0]`, chromedp.ByQuery).Do(ctx); err != nil {
+					if err := chromedp.Click(`div[data-profileindex="0"]`, chromedp.ByQuery).Do(ctx); err != nil {
 						return err
 					}
 					time.Sleep(tick)
