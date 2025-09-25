@@ -457,6 +457,14 @@ func (s *Session) login(ctx context.Context) error {
 					time.Sleep(tick)
 					continue
 				}
+				if strings.Contains(location, "signin/confirmidentifier") {
+					// Click Next button
+					if err := chromedp.Click(`div#identifierNext button`, chromedp.ByQuery).Do(ctx); err != nil {
+						return err
+					}
+					time.Sleep(tick)
+					continue
+				}
 				if strings.Contains(location, "signin/rejected") {
 					return errors.New("google rejected automated login")
 				}
