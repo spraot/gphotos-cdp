@@ -2248,7 +2248,7 @@ func (s *Session) getPhotoNodeSelector() string {
 // compiled year regex
 var yearRegex = regexp.MustCompile(`\d{4}`)
 var dayRegex = regexp.MustCompile(`\d{1,2}`)
-var timeRegex = regexp.MustCompile(`(\d{1,2}):(\d\d)(?::\d\d)?.?([aApP][Mm])?$`)
+var timeRegex = regexp.MustCompile(`(\d{1,2}):(\d\d)(?::\d\d)?.?([aApP]\.?[Mm]\.?)?$`)
 var timeZoneRegex = regexp.MustCompile(`GMT([-+])?(\d{1,2})(?::(\d\d))?`)
 
 func parseDate(dateStr, timeStr, tzStr string) (time.Time, error) {
