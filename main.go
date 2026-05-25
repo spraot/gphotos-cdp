@@ -1779,7 +1779,19 @@ func (s *Session) resync(ctx context.Context) error {
 			if syncedCount == lastSyncedCount {
 				iterationsWithNoProgressCount++
 				if iterationsWithNoProgressCount > 20 {
-					panic("no new items processed for 20 minutes, stopping sync")
+					// Deadman: enumeration has stalled. Report the
+					// error and cancel the context so in-flight
+					// chromedp calls unwind and pending downloads
+					// drain. Previously a bare panic() left the
+					// process to crash without saving state and
+					// without giving the wrapper a clean exit code
+					// to retry against.
+					select {
+					case s.globalErrChan <- fmt.Errorf("no new items processed for 20 minutes, stopping sync"):
+					default:
+					}
+					cancel()
+					return
 				}
 			} else {
 				iterationsWithNoProgressCount = 0
