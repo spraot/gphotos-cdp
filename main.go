@@ -883,7 +883,21 @@ func requestDownloadBackup(ctx context.Context, log zerolog.Logger) error {
 	start := time.Now()
 
 	log.Debug().Msgf("requesting download (backup method)")
-	target.ActivateTarget(chromedp.FromContext(ctx).Target.TargetID).Do(ctx)
+
+	// Bound the DevTools-protocol call below — it's synchronous and
+	// inherits the worker's ctx, which has no deadline. If Chrome stops
+	// ACKing target activations (observed on certain poisoned items in
+	// the wild), an unbounded chromedp.Run will hang here forever,
+	// holding the tab lock + blocking startDownload's outer 120s
+	// timeoutTimer from ever running. Cap at 5s so the error bubbles up
+	// to startDownload's retry path.
+	activateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	err := target.ActivateTarget(chromedp.FromContext(activateCtx).Target.TargetID).Do(activateCtx)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("activating target for backup download: %w", err)
+	}
+
 	if err := pressButton(ctx, "D", input.ModifierShift); err != nil {
 		return err
 	}
@@ -915,8 +929,15 @@ func pressButton(ctx context.Context, key string, modifier input.Modifier) error
 	for _, ev := range []*input.DispatchKeyEventParams{&down, &up} {
 		log.Trace().Msgf("triggering button press event: %v, %v, %v", ev.Key, ev.Type, ev.Modifiers)
 
-		if err := chromedp.Run(ctx, ev); err != nil {
-			return err
+		// Each keystroke event is an unbounded DevTools-protocol call.
+		// Bound it so a non-ACKing Chrome surfaces as an error within
+		// 5s instead of hanging the caller — see requestDownloadBackup
+		// for the wedge this prevents.
+		pressCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := chromedp.Run(pressCtx, ev)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("dispatching key event %v %v: %w", ev.Key, ev.Type, err)
 		}
 	}
 	return nil
