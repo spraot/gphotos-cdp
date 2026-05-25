@@ -19,8 +19,10 @@ limitations under the License.
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"flag"
 	"fmt"
@@ -78,6 +80,7 @@ var (
 	albumTypeFlag   = flag.String("albumtype", "album", "type of album to download (as seen in URL), has no effect if lastdone file is found or if -start contains full URL")
 	batchSizeFlag   = flag.Int("batchsize", 0, "number of photos to download in one batch")
 	execPathFlag    = flag.String("execpath", "", "path to Chrome/Chromium binary to use")
+	verifyFlag      = flag.Bool("verify", false, "verify mode: read imageIds from stdin (one per line), write CSV report to stdout, then exit (no sync, no writes)")
 )
 
 const gphotosUrl = "https://photos.google.com"
@@ -188,6 +191,11 @@ func main() {
 	} else {
 		log.Info().Msgf("using locale %s", locale)
 		loc = _loc
+	}
+
+	if *verifyFlag {
+		s.verifyDownloads(ctx, startupCancel)
+		return
 	}
 
 	if err := chromedp.Run(startupCtx,
@@ -2179,6 +2187,116 @@ func (s *Session) verifyPageMatches(ctx context.Context, log zerolog.Logger, exp
 		}
 	}
 	return fmt.Errorf("%w: page settled on %s instead of %s after re-navigation", errCouldNotLoadPhoto, lastCanonicalId, expectedImageId)
+}
+
+// verifyDownloads reads imageIds from stdin (one per line, # for comments)
+// and writes a CSV report to stdout. For each id it navigates to the photo
+// page, checks the canonical link matches, reads the filename + date Google
+// reports, and compares against what's stored locally under
+// downloadDir/<imageId>/. Read-only: no writes to .lastdone, no files
+// removed or modified.
+//
+// Output columns:
+//
+//	imageId,status,details,localFiles,remoteFilename,remoteDate
+//
+// Status values:
+//
+//	ok                  — canonical matches, local filename matches remote
+//	canonical_mismatch  — Google rendered a different photo for this URL;
+//	                      "details" holds the canonical URL Google served
+//	filename_mismatch   — canonical matches but local file isn't the
+//	                      filename Google reports (silent-corruption hit)
+//	local_missing       — no local directory for this imageId
+//	remote_load_failed  — page didn't render / getPhotoData timed out
+//	error               — anything else; "details" has the error string
+func (s *Session) verifyDownloads(ctx context.Context, startupCancel context.CancelFunc) {
+	// Drop the 10-minute startup deadline — verify runs can be long.
+	startupCancel()
+
+	w := csv.NewWriter(os.Stdout)
+	defer w.Flush()
+	_ = w.Write([]string{"imageId", "status", "details", "localFiles", "remoteFilename", "remoteDate"})
+
+	scanner := bufio.NewScanner(os.Stdin)
+	n, mismatches := 0, 0
+	for scanner.Scan() {
+		imageId := strings.TrimSpace(scanner.Text())
+		if imageId == "" || strings.HasPrefix(imageId, "#") {
+			continue
+		}
+		n++
+		itemLog := log.With().Int("itemIdx", n).Str("itemId", imageId).Logger()
+		status, details, localFiles, remoteFn, remoteDate := s.verifyOne(ctx, itemLog, imageId)
+		if status != "ok" {
+			mismatches++
+			itemLog.Warn().Str("status", status).Str("details", details).Msgf("verify: %s", status)
+		} else {
+			itemLog.Debug().Msg("verify: ok")
+		}
+		_ = w.Write([]string{imageId, status, details, localFiles, remoteFn, remoteDate})
+		w.Flush()
+	}
+	if err := scanner.Err(); err != nil {
+		log.Error().Err(err).Msg("error reading stdin")
+	}
+	log.Info().Msgf("verify done: %d items checked, %d non-ok", n, mismatches)
+}
+
+func (s *Session) verifyOne(ctx context.Context, log zerolog.Logger, imageId string) (status, details, localFiles, remoteFn, remoteDate string) {
+	// Snapshot local state first (cheap, read-only)
+	entries, err := os.ReadDir(filepath.Join(s.downloadDir, imageId))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "local_missing", "", "", "", ""
+		}
+		return "error", err.Error(), "", "", ""
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	localFiles = strings.Join(names, "|")
+
+	// Navigate to the photo page
+	if err := s.navigateToPhoto(ctx, log, imageId); err != nil {
+		return "remote_load_failed", err.Error(), localFiles, "", ""
+	}
+
+	// Canonical-link check: did Google actually render this photo?
+	if err := s.verifyPageMatches(ctx, log, imageId); err != nil {
+		if errors.Is(err, errCouldNotLoadPhoto) {
+			var canonical string
+			_ = chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('link[rel="canonical"]')?.href || ''`, &canonical))
+			return "canonical_mismatch", canonical, localFiles, "", ""
+		}
+		return "error", err.Error(), localFiles, "", ""
+	}
+
+	// Pull filename + date from the (now confirmed) right page
+	data, err := s.getPhotoData(ctx, log, imageId)
+	if err != nil {
+		return "remote_load_failed", err.Error(), localFiles, "", ""
+	}
+	remoteFn = data.filename
+	remoteDate = data.date.Format(time.RFC3339)
+
+	// Filename match: use compareMangled to handle Unicode normalization
+	// and Google's filename mangling, and strip the _original suffix the
+	// downloader adds to disambiguate the original-vs-generated pair.
+	for _, name := range names {
+		candidate := name
+		ext := filepath.Ext(candidate)
+		stem := strings.TrimSuffix(candidate, ext)
+		stem = strings.TrimSuffix(stem, originalSuffix)
+		candidate = stem + ext
+		if compareMangled(data.filename, candidate) {
+			return "ok", "", localFiles, remoteFn, remoteDate
+		}
+	}
+	return "filename_mismatch", "", localFiles, remoteFn, remoteDate
 }
 
 func (s *Session) doWorkerBatchItem(ctx context.Context, log zerolog.Logger, imageId string, downloadChan <-chan NewDownload, isConsecutive bool) (string, error) {
