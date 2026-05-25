@@ -92,6 +92,7 @@ var errAlreadyDownloaded = errors.New("photo already downloaded")
 var errAbortBatch = errors.New("abort batch")
 var errNavigateAborted = errors.New("navigate aborted")
 var errUnexpectedDownload = errors.New("unexpected download")
+var errCouldNotLoadPhoto = errors.New("photo page failed to load within timeout")
 var fromDate time.Time
 var toDate time.Time
 var loc GPhotosLocale
@@ -1150,8 +1151,18 @@ func (s *Session) getPhotoData(ctx context.Context, log zerolog.Logger, imageId 
 			log.Debug().Int64("duration", time.Since(start).Milliseconds()).Msgf("done attempt to find photo data nodes")
 		}
 
-		if time.Since(start).Seconds() > 200 {
-			return PhotoData{}, fmt.Errorf("timeout waiting for photo info (waited %d ms)", time.Since(start).Milliseconds())
+		// Fast-fail when the page never produces any photo info at all —
+		// usually means Google's SPA hung on this specific photo (a Google
+		// bug we can't fix; observed deterministically on certain items).
+		// Distinct from the 200s "incomplete info" path below, which assumes
+		// some data has loaded and we're waiting on the rest.
+		elapsed := time.Since(start).Seconds()
+		gotAnyData := len(filename) > 0 || len(dateStr) > 0 || len(timeStr) > 0
+		if !gotAnyData && elapsed > 45 {
+			return PhotoData{}, fmt.Errorf("%w: no photo info appeared after 45s — page likely frozen", errCouldNotLoadPhoto)
+		}
+		if elapsed > 200 {
+			return PhotoData{}, fmt.Errorf("%w: incomplete info after 200s (filename=%v date=%v time=%v)", errCouldNotLoadPhoto, len(filename) > 0, len(dateStr) > 0, len(timeStr) > 0)
 		}
 
 		// Do part of the waiting outside of the tab lock, so we don't hog the active tab the whole time
@@ -2052,10 +2063,18 @@ func (s *Session) downloadWorker(workerId int, jobs <-chan Job, resultChan chan<
 				isConsecutive = true
 				if errors.Is(err, errAbortBatch) {
 					break
-				} else if errors.Is(err, errAlreadyDownloaded) || errors.Is(err, errStillProcessing) {
+				} else if errors.Is(err, errAlreadyDownloaded) || errors.Is(err, errStillProcessing) || errors.Is(err, errCouldNotLoadPhoto) {
 					if errors.Is(err, errStillProcessing) {
 						// Old highlight videos are no longer available
 						log.Info().Msg("skipping generated highlight video that Google cannot be downloaded")
+						isConsecutive = false
+					} else if errors.Is(err, errCouldNotLoadPhoto) {
+						// Google's SPA hangs on certain photos (a Google bug).
+						// Skip rather than killing the whole sync; cleanup of
+						// any partial files was already done in
+						// downloadAndProcessItem so retrying on a future run
+						// will try the item again.
+						log.Warn().Err(err).Msg("skipping photo whose page failed to load — Google Photos rendering bug")
 						isConsecutive = false
 					}
 					downloadedItemId = ""
@@ -2070,6 +2089,50 @@ func (s *Session) downloadWorker(workerId int, jobs <-chan Job, resultChan chan<
 		errChan <- nil
 	}()
 	return chromedp.FromContext(ctx).Target.TargetID.String()
+}
+
+// verifyPageMatches checks that the currently-rendered page is actually
+// for expectedImageId. Google's SPA can serve different content under a
+// /photo/<id> URL (deleted item fallback, stale routing, etc.) — without
+// this check, getPhotoData could read the wrong photo's data and we'd
+// silently store the wrong file under expectedImageId. The link[rel=canonical]
+// reflects what Google actually decided the page is about, regardless of
+// what the URL bar says.
+//
+// Polls briefly to absorb SPA transitions, then re-navigates once before
+// giving up with errCouldNotLoadPhoto (so the worker skip path handles it).
+func (s *Session) verifyPageMatches(ctx context.Context, log zerolog.Logger, expectedImageId string) error {
+	var lastCanonicalId string
+	for outer := 0; outer < 2; outer++ {
+		for inner := 0; inner < 4; inner++ {
+			var canonical string
+			if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('link[rel="canonical"]')?.href || ''`, &canonical)); err != nil {
+				return fmt.Errorf("could not read canonical link: %w", err)
+			}
+			if canonical == "" {
+				// No canonical on the page — let it through; getPhotoData
+				// will catch obvious wrong-data via its own selectors.
+				return nil
+			}
+			id, err := imageIdFromUrl(canonical)
+			if err != nil {
+				// Unparseable canonical — don't block on it
+				return nil
+			}
+			lastCanonicalId = id
+			if id == expectedImageId {
+				return nil
+			}
+			time.Sleep(400 * time.Millisecond)
+		}
+		if outer == 0 {
+			log.Debug().Msgf("canonical %s != expected %s after polling; re-navigating", lastCanonicalId, expectedImageId)
+			if err := s.navigateToPhoto(ctx, log, expectedImageId); err != nil {
+				return err
+			}
+		}
+	}
+	return fmt.Errorf("%w: page settled on %s instead of %s after re-navigation", errCouldNotLoadPhoto, lastCanonicalId, expectedImageId)
 }
 
 func (s *Session) doWorkerBatchItem(ctx context.Context, log zerolog.Logger, imageId string, downloadChan <-chan NewDownload, isConsecutive bool) (string, error) {
@@ -2116,6 +2179,10 @@ func (s *Session) doWorkerBatchItem(ctx context.Context, log zerolog.Logger, ima
 	}
 
 	time.Sleep(2 * time.Millisecond)
+
+	if err := s.verifyPageMatches(ctx, log, imageId); err != nil {
+		return "", err
+	}
 
 	isNew, err := s.isNewItem(log, imageId, true)
 	if err != nil {
