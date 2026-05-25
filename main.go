@@ -1752,6 +1752,7 @@ func (s *Session) resync(ctx context.Context) error {
 	// progress logger
 	go func(ctx context.Context) {
 		lastSyncedCount := 0
+		lastDownloadedCount := 0
 		iterationsWithNoProgressCount := 0
 		start := time.Now()
 		for {
@@ -1777,15 +1778,33 @@ func (s *Session) resync(ctx context.Context) error {
 				log.Info().Msgf("in total: synced %v items, downloaded %v, progress: %.2f%%", syncedCount, downloadedCount, progress*100)
 				return
 			}
-			if syncedCount == lastSyncedCount {
+			if syncedCount == lastSyncedCount && downloadedCount == lastDownloadedCount {
 				iterationsWithNoProgressCount++
 				if iterationsWithNoProgressCount > 20 {
-					panic("no new items processed for 20 minutes, stopping sync")
+					// Deadman: neither enumeration nor downloads
+					// have advanced for 20 minutes. Watching both
+					// metrics matters because enumeration legitimately
+					// stalls when the queue is full and workers are
+					// still draining it — that's a healthy state, not
+					// a wedge. We only bail when neither metric moves.
+					//
+					// Report the error and cancel the context so
+					// in-flight chromedp calls unwind cleanly.
+					// Previously a bare panic() left the process to
+					// crash without saving state and without giving
+					// the wrapper a clean exit code to retry against.
+					select {
+					case s.globalErrChan <- fmt.Errorf("no progress (enumeration or downloads) for 20 minutes, stopping sync"):
+					default:
+					}
+					cancel()
+					return
 				}
 			} else {
 				iterationsWithNoProgressCount = 0
 			}
 			lastSyncedCount = syncedCount
+			lastDownloadedCount = downloadedCount
 		}
 	}(ctx)
 
