@@ -1123,9 +1123,22 @@ func (s *Session) getPhotoData(ctx context.Context, log zerolog.Logger, imageId 
 
 			target.ActivateTarget(chromedp.FromContext(ctx).Target.TargetID).Do(ctx)
 
-			// If video is 'still processing', photo data may never load, so stop here
+			// If video is 'still processing', photo data may never load, so stop here.
+			// Bound this chromedp.Run with a short timeout (#12-style): the outer
+			// getPhotoData ctx has 4 minutes, but when Google's SPA hangs on this
+			// specific photo the chromedp.Run can sit on the unbounded inner call
+			// for the full 4 minutes before bubbling up, holding the tab lock the
+			// whole time and starving every other worker. Cap at 5s; on timeout,
+			// wrap as errCouldNotLoadPhoto so the worker skip-and-continue path
+			// (introduced in e9e7908) handles it rather than failing the run.
 			var undownloadable bool
-			if err := chromedp.Run(ctx, chromedp.Evaluate(`[...document.querySelectorAll('c-wiz[data-media-key*="'+document.location.href.trim().split('/').pop()+'"]')].filter(x => getComputedStyle(x).visibility != 'hidden')[0]?.textContent.indexOf('Your video will be ready soon') >= 0`, &undownloadable)); err != nil {
+			videoCheckCtx, videoCheckCancel := context.WithTimeout(ctx, 5*time.Second)
+			err := chromedp.Run(videoCheckCtx, chromedp.Evaluate(`[...document.querySelectorAll('c-wiz[data-media-key*="'+document.location.href.trim().split('/').pop()+'"]')].filter(x => getComputedStyle(x).visibility != 'hidden')[0]?.textContent.indexOf('Your video will be ready soon') >= 0`, &undownloadable))
+			videoCheckCancel()
+			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return fmt.Errorf("%w: videoStillProcessing check timed out: %w", errCouldNotLoadPhoto, err)
+				}
 				return fmt.Errorf("while checking if video is still processing %w", err)
 			}
 			if undownloadable {
