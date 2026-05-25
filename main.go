@@ -967,7 +967,13 @@ func requestDownload(ctx context.Context, log zerolog.Logger, original bool, has
 					}
 					return nil
 				}),
-				chromedp.Sleep(10*time.Millisecond),
+				// Wait deterministically for the menu's download item to render,
+				// instead of a fixed 10ms sleep that was too short on slow renders.
+				// Bounded to 500ms — beyond that, fall through and let the outer
+				// retry loop reopen the menu.
+				chromedp.ActionFunc(func(ctx context.Context) error {
+					return doActionWithTimeout(ctx, chromedp.WaitVisible(downloadSelector, chromedp.ByQuery), 500*time.Millisecond)
+				}),
 				chromedp.ActionFunc(func(ctx context.Context) error {
 					if hasOriginal != nil {
 						return chromedp.Evaluate(`!!document.querySelector('`+originalSelector+`')`, hasOriginal).Do(ctx)
@@ -1195,7 +1201,12 @@ func (s *Session) startDownload(ctx context.Context, log zerolog.Logger, imageId
 				}
 				refreshTimer = time.NewTimer(100 * time.Millisecond)
 			} else {
-				refreshTimer = time.NewTimer(5 * time.Second)
+				// After a successful click, wait long enough for Google to
+				// actually emit EventDownloadWillBegin before assuming the
+				// click was lost and reloading. 5s was too tight for
+				// originals / large zips — the server is preparing the
+				// payload and the event can lag.
+				refreshTimer = time.NewTimer(15 * time.Second)
 			}
 		case <-refreshTimer.C:
 			log.Debug().Msgf("reloading page because download failed to start")
@@ -1720,6 +1731,16 @@ func (s *Session) resync(ctx context.Context) error {
 			case newDownload := <-s.newDownloadChan:
 				worker, exists := workerDownloadChanByFrameId.Load(newDownload.targetId)
 				if !exists {
+					// Routing key mismatch — usually means the EventDownloadWillBegin
+					// arrived with a frame ID that doesn't match any worker's target ID.
+					// Dump the registered worker target IDs so we can tell whether the
+					// listener is reporting iframe frame IDs vs. tab target IDs.
+					var registered []string
+					workerDownloadChanByFrameId.Range(func(k, _ any) bool {
+						registered = append(registered, k.(string))
+						return true
+					})
+					log.Warn().Strs("registeredTargetIds", registered).Msgf("download routing miss: targetId=%s suggestedFilename=%s", newDownload.targetId, newDownload.suggestedFilename)
 					s.globalErrChan <- fmt.Errorf("worker with targetId %s not found for download of %s", newDownload.targetId, newDownload.suggestedFilename)
 					return
 				}
