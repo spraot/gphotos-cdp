@@ -133,3 +133,71 @@ nl:
     - "okt"
     - "nov"
     - "dec"
+fr:
+  selectAllPhotosLabel:
+    matchType: startsWith
+    matchValue: "Sélectionner toutes les photos"
+  fileNameLabel:
+    matchType: startsWith
+    matchValue: "Nom du fichier :"
+  dateLabel:
+    matchType: startsWith
+    matchValue: "Date de la prise de vue :"
+  today: "Aujourd'hui"
+  yesterday: "Hier"
+  timeLabel:
+    matchType: startsWith
+    matchValue: "Heure de la prise de vue :"
+  tzLabel:
+    matchType: startsWith
+    matchValue: "GMT"
+  viewPreviousPhotoMatch:
+    matchType: equals
+    matchValue: "Afficher la photo précédente"
+  moreOptionsLabel:
+    matchType: equals
+    matchValue: "Plus d'options"
+  downloadLabel:
+    matchType: equals
+    matchValue: "Télécharger - Maj+D"
+  downloadOriginalLabel:
+    matchType: equals
+    matchValue: "Télécharger l'original"
+  openInfoMatch:
+    matchType: equals
+    matchValue: "Ouvrir les infos"
+  videoStillProcessingDialogLabel:
+    matchType: startsWith
+    matchValue: "Video still is processing"
+  videoStillProcessingStatusText: "Video is still processing &amp; can be downloaded later"
+  noWebpageFoundText: "No webpage was found for the web address:"
+  notNow: "Not now"
+  shortDayNames:
+    - "dim"
+    - "lun"
+    - "mar"
+    - "mer"
+    - "jeu"
+    - "ven"
+    - "sam"
+  longDayNames:
+    - "Dimanche"
+    - "Lundi"
+    - "Mardi"
+    - "Mercredi"
+    - "Jeudi"
+    - "Vendredi"
+    - "Samedi"
+  shortMonthNames:
+    - "jan"
+    - "fév"
+    - "mars"
+    - "avr"
+    - "mai"
+    - "juin"
+    - "juil"
+    - "août"
+    - "sept"
+    - "oct"
+    - "nov"
+    - "déc"
