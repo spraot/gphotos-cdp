@@ -1679,6 +1679,7 @@ func (s *Session) resync(ctx context.Context) error {
 	listenNavEvents(ctx)
 
 	lastNode := &cdp.Node{}
+	lastImageId := "" // stable identity for lastNode — survives Google's virtualized list unmount/remount
 	var nodes []*cdp.Node
 	i := 0                         // next node to process in nodes array
 	n := 0                         // number of nodes processed in all
@@ -1854,12 +1855,33 @@ syncAllLoop:
 			}
 			log.Trace().Msgf("found %d items, checking if any are new", len(nodes))
 
-			// remove already processed nodes
+			// Slice off already-processed nodes. Prefer pointer equality
+			// (fast, works in steady-state via chromedp's frame-tree
+			// node interning), then fall back to matching by imageId.
+			// The imageId fallback catches the case where Google's
+			// virtualized list has unmounted the previous lastNode
+			// between this query and the last one, leaving its *cdp.Node
+			// pointer dangling and absent from the new results — pointer
+			// equality silently fails and the dedupe was a no-op, which
+			// could let us re-process old items or skip past unread ones.
 			foundNodes := len(nodes)
+			sliced := false
 			for i, node := range nodes {
 				if node == lastNode {
 					nodes = nodes[i+1:]
+					sliced = true
 					break
+				}
+			}
+			if !sliced && lastImageId != "" {
+				for i, node := range nodes {
+					id, idErr := imageIdFromUrl(node.AttributeValue("href"))
+					if idErr == nil && id == lastImageId {
+						log.Debug().Msgf("scroll anchor recovered by imageId %s after stale NodeID %v", lastImageId, lastNode.NodeID)
+						nodes = nodes[i+1:]
+						sliced = true
+						break
+					}
 				}
 			}
 			if len(nodes) == 0 {
@@ -1867,8 +1889,8 @@ syncAllLoop:
 				continue
 			}
 			log.Trace().Msgf("%d nodes on page, processing %d that haven't been processed yet", foundNodes, len(nodes))
-			if foundNodes == len(nodes) {
-				log.Warn().Msg("only new nodes found, expected an overlap")
+			if !sliced && foundNodes == len(nodes) {
+				log.Warn().Msg("scroll anchor not found by NodeID or imageId — processing full query (isNewItem will filter duplicates)")
 			}
 
 			retries = 0
@@ -1887,6 +1909,7 @@ syncAllLoop:
 			if err != nil {
 				return fmt.Errorf("error getting item id from url, %w", err)
 			}
+			lastImageId = imageId // track for dedupe fallback if the *cdp.Node ptr later goes stale
 
 			if strings.EqualFold(imageId, *untilFlag) {
 				foundUntil = true
