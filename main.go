@@ -1117,11 +1117,23 @@ func (s *Session) getPhotoData(ctx context.Context, log zerolog.Logger, imageId 
 		start := time.Now()
 		log := log.With().Int("attempt", n).Logger()
 		if err := func() error {
-			unlock := acquireTabLock(log, "to extract photo data")
-			defer unlock()
 			log.Trace().Msgf("extracting photo data")
 
-			target.ActivateTarget(chromedp.FromContext(ctx).Target.TargetID).Do(ctx)
+			// Narrowed (was: lock held for the entire iteration). The
+			// global muTabActivity only needs to guard tab-foreground
+			// transitions — chromedp.Evaluate uses the per-target CDP
+			// session and doesn't depend on the foreground tab; nor do
+			// JS-triggered clicks via EvaluateAsDevTools. Keyboard /
+			// mouse events that DO need foreground use their own per-
+			// context muKbEvents lock (see checkForStillProcessing).
+			// Holding the lock for the full iteration serialized N
+			// verify workers to ~1× throughput; narrowing it lets the
+			// reads run in parallel.
+			func() {
+				unlock := acquireTabLock(log, "to activate tab for photo data")
+				defer unlock()
+				target.ActivateTarget(chromedp.FromContext(ctx).Target.TargetID).Do(ctx)
+			}()
 
 			// If video is 'still processing', photo data may never load, so stop here.
 			// Bound this chromedp.Run with a short timeout (#12-style): the outer
