@@ -2198,6 +2198,16 @@ func (s *Session) verifyPageMatches(ctx context.Context, log zerolog.Logger, exp
 //	local_missing       — no local directory for this imageId
 //	remote_load_failed  — page didn't render / getPhotoData timed out
 //	error               — anything else; "details" has the error string
+// verifyResult bundles one row's verify outcome for the writer goroutine.
+type verifyResult struct {
+	imageId    string
+	status     string
+	details    string
+	localFiles string
+	remoteFn   string
+	remoteDate string
+}
+
 func (s *Session) verifyDownloads(ctx context.Context, startupCancel context.CancelFunc) {
 	// Drop the 10-minute startup deadline — verify runs can be long.
 	startupCancel()
@@ -2206,28 +2216,83 @@ func (s *Session) verifyDownloads(ctx context.Context, startupCancel context.Can
 	defer w.Flush()
 	_ = w.Write([]string{"imageId", "status", "details", "localFiles", "remoteFilename", "remoteDate"})
 
+	workers := int(*workersFlag)
+	if workers < 1 {
+		workers = 1
+	}
+	log.Info().Int("workers", workers).Msg("verify starting")
+
+	// Each worker gets its own chromedp tab off the main browser. Tab
+	// activation in nav/click paths is serialized by acquireTabLock,
+	// so per-tab work runs concurrently; only the activation moments
+	// queue. CSV output is written in completion order, not input
+	// order — each row carries its imageId so callers can re-sort if
+	// they need stable ordering. Set -workers 1 to restore the
+	// previous strictly-sequential behavior.
+	jobs := make(chan string, workers*2)
+	results := make(chan verifyResult, workers*2)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(workerId int) {
+			defer wg.Done()
+			wctx, cancel := chromedp.NewContext(s.parentContext)
+			defer cancel()
+			if err := chromedp.Run(wctx); err != nil {
+				log.Error().Err(err).Int("workerId", workerId).Msg("verify worker: failed to init tab")
+				return
+			}
+			wctx = SetContextData(wctx)
+			listenNavEvents(wctx)
+			wlog := log.With().Int("workerId", workerId).Logger()
+			wlog.Trace().Msg("verify worker ready")
+			for imageId := range jobs {
+				itemLog := wlog.With().Str("itemId", imageId).Logger()
+				status, details, localFiles, remoteFn, remoteDate := s.verifyOne(wctx, itemLog, imageId)
+				if status != "ok" {
+					itemLog.Warn().Str("status", status).Str("details", details).Msgf("verify: %s", status)
+				} else {
+					itemLog.Debug().Msg("verify: ok")
+				}
+				results <- verifyResult{imageId, status, details, localFiles, remoteFn, remoteDate}
+			}
+		}(i)
+	}
+
+	// Writer goroutine: drain results onto the CSV. Counts are tracked
+	// here so the totals stay accurate even though items arrive in
+	// completion order rather than input order.
+	writerDone := make(chan struct{})
+	var n, mismatches int
+	go func() {
+		for r := range results {
+			n++
+			if r.status != "ok" {
+				mismatches++
+			}
+			_ = w.Write([]string{r.imageId, r.status, r.details, r.localFiles, r.remoteFn, r.remoteDate})
+			w.Flush()
+		}
+		close(writerDone)
+	}()
+
 	scanner := bufio.NewScanner(os.Stdin)
-	n, mismatches := 0, 0
 	for scanner.Scan() {
 		imageId := strings.TrimSpace(scanner.Text())
 		if imageId == "" || strings.HasPrefix(imageId, "#") {
 			continue
 		}
-		n++
-		itemLog := log.With().Int("itemIdx", n).Str("itemId", imageId).Logger()
-		status, details, localFiles, remoteFn, remoteDate := s.verifyOne(ctx, itemLog, imageId)
-		if status != "ok" {
-			mismatches++
-			itemLog.Warn().Str("status", status).Str("details", details).Msgf("verify: %s", status)
-		} else {
-			itemLog.Debug().Msg("verify: ok")
-		}
-		_ = w.Write([]string{imageId, status, details, localFiles, remoteFn, remoteDate})
-		w.Flush()
+		jobs <- imageId
 	}
 	if err := scanner.Err(); err != nil {
 		log.Error().Err(err).Msg("error reading stdin")
 	}
+	close(jobs)
+	wg.Wait()
+	close(results)
+	<-writerDone
+
 	log.Info().Msgf("verify done: %d items checked, %d non-ok", n, mismatches)
 }
 
