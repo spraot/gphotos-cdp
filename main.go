@@ -453,6 +453,38 @@ func (s *Session) login(ctx context.Context) error {
 					time.Sleep(tick)
 					continue
 				}
+				if strings.Contains(location, "accountchooser") {
+					// Google's "Choose an account" page
+					// (v3/signin/accountchooser): a remembered-but-signed-out
+					// account. Click the tile whose data-identifier matches
+					// GPHOTOS_EMAIL so the flow advances to the password page
+					// (handled below). This is a different page than the
+					// "signinchooser" variant handled above. If no tile can be
+					// matched we fall through to the headless-bail/screenshot
+					// path, so the failure stays diagnosable in error.png.
+					email := os.Getenv("GPHOTOS_EMAIL")
+					var clicked bool
+					js := `(() => {
+						const want = ` + strconv.Quote(email) + `;
+						let el = want ? document.querySelector('[data-identifier="' + want + '"]') : null;
+						if (!el) el = document.querySelector('[data-identifier]');
+						if (!el && want) {
+							const li = Array.from(document.querySelectorAll('li')).find(n => n.textContent && n.textContent.includes(want));
+							el = li ? (li.querySelector('[data-identifier],[role="link"],[role="button"]') || li) : null;
+						}
+						if (!el) return false;
+						el.click();
+						return true;
+					})()`
+					if err := chromedp.Evaluate(js, &clicked).Do(ctx); err != nil {
+						return err
+					}
+					if clicked {
+						log.Info().Msgf("clicked account tile on accountchooser page (email=%s)", email)
+						time.Sleep(tick)
+						continue
+					}
+				}
 				if strings.Contains(location, "signin/challenge/dp") {
 					log.Info().Msgf("waiting for user to approve login with other device")
 					time.Sleep(tick)
