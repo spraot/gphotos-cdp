@@ -233,6 +233,7 @@ type Session struct {
 	globalErrChan    chan error
 	userPath         string
 	albumPath        string
+	symlinkDir       string // stored images will also be symlinked into this directory if set
 	existingItems    sync.Map
 	foundItems       sync.Map
 	downloadedItems  sync.Map
@@ -241,6 +242,7 @@ type Session struct {
 }
 
 func NewSession() (*Session, error) {
+	symlinkDir := ""
 	albumPath := ""
 	userPath := ""
 	if *albumIdFlag != "" {
@@ -309,6 +311,7 @@ func NewSession() (*Session, error) {
 		globalErrChan:   make(chan error, 1),
 		userPath:        userPath,
 		albumPath:       albumPath,
+		symlinkDir:      symlinkDir,
 		newDownloadChan: make(chan NewDownload),
 	}
 
@@ -1483,6 +1486,23 @@ func (s *Session) processDownload(log zerolog.Logger, downloadInfo NewDownload, 
 		}
 		filePaths = []string{newFile}
 		baseNames = append(baseNames, filepath.Base(newFile))
+
+		// create symlink if configured
+		if s.symlinkDir != "" {
+			symlinkPath := filepath.Join(s.symlinkDir, imageId)
+			if _, err := os.Stat(symlinkPath); err != nil {
+				relativePath, err := filepath.Rel(s.symlinkDir, outDir)
+				if err != nil {
+					log.Error().Msgf("Error calculating relative path from %s to %s1: %v\n", s.symlinkDir, outDir, err)
+				} else {
+					if err := os.Symlink(relativePath, symlinkPath); err != nil {
+						log.Error().Msgf("Error creating symlink from %s to %s1: %v\n", symlinkPath, outDir, err)
+					} else {
+						log.Debug().Msgf("Created symlink %s", symlinkPath)
+					}
+				}
+			}
+		}
 	}
 
 	if err := doFileDateUpdate(data.date, filePaths); err != nil {
@@ -1796,8 +1816,31 @@ func (s *Session) resync(ctx context.Context) error {
 		return fmt.Errorf("error finding photo nodes, %w", err)
 	}
 	if len(nodes) == 0 {
+		log.Debug().Msgf("Could not find any DOM nodes matching '%s'", photoNodeSelector)
 		log.Info().Msg("no photos to sync")
 		return nil
+	}
+
+	// if downloading an album, attempt to get album name for symlinking
+	if s.albumPath != "" {
+		title := ""
+		if chromedp.Title(&title).Do(ctx) == nil && len(title) > 0 {
+			lastDashIndex := strings.LastIndex(title, " - ")
+			if lastDashIndex == -1 {
+				log.Warn().Msgf("Could not identify album name from page title '%s'", title)
+			} else {
+				albumName := title[:lastDashIndex]
+				albumDir := filepath.Join(s.downloadDir, "albums", albumName+"_"+*albumIdFlag)
+				if err := os.MkdirAll(albumDir, 0700); err != nil {
+					log.Error().Msgf("Could not create album directory '%s'. %s", albumDir, err.Error())
+				} else {
+					s.symlinkDir = albumDir
+					log.Info().Msgf("Symlinking downloaded images to album directory %s", albumDir)
+				}
+			}
+		} else {
+			log.Warn().Msgf("Could not identify album name, no title found on page")
+		}
 	}
 
 	jobChan := make(chan Job)
