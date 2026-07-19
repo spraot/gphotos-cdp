@@ -1,0 +1,25 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/go .
+{
+	"name": "Go",
+	"image": "mcr.microsoft.com/devcontainers/go:2-1.25-trixie",
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	"features": {
+		"ghcr.io/devcontainers/features/desktop-lite":{
+			"password": "vncpass",
+			"webPort": "6080",
+			"vncPort": "5901"
+		},
+	},
+
+	"containerEnv": {
+		"VNC_RESOLUTION": "1920x1080x24",
+		// Note: CHROME_PACKAGE only supports amd64. aarch64 (Apple Silicon, ARM hosts) would need to use supply proper package or Chromium from APT instead.
+		"CHROME_PACKAGE": "google-chrome-stable_current_amd64.deb",
+	},
+
+	"forwardPorts": [5901, 6080],
+
+	"postCreateCommand": "sudo bash -c \"apt-get update && apt-get install -y apt-transport-https ca-certificates --no-install-recommends && wget https://dl.google.com/linux/direct/$CHROME_PACKAGE && apt install -y ./$CHROME_PACKAGE && rm ./$CHROME_PACKAGE && rm -rf /var/lib/apt/lists/*\"",
+}
