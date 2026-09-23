@@ -2076,6 +2076,10 @@ syncAllLoop:
 				return err
 			case jobChan <- job:
 				log.Trace().Msgf("queued job with itemIds: %s", strings.Join(job.imageIds, ", "))
+			case <-ctx.Done():
+				// the router goroutine exits on ctx.Done without forwarding worker errors,
+				// so without this case a dead browser (e.g. laptop sleep) blocks here forever
+				return ctx.Err()
 			}
 		}
 
@@ -2087,12 +2091,16 @@ syncAllLoop:
 	}
 	close(jobChan)
 
-	for err := range s.globalErrChan {
-		if !errors.Is(err, errPhotoTakenBeforeFromDate) {
-			return err
+	for {
+		select {
+		case err := <-s.globalErrChan:
+			if !errors.Is(err, errPhotoTakenBeforeFromDate) {
+				return err
+			}
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
-	return nil
 }
 
 func (s *Session) isNewItem(log zerolog.Logger, imageId string, markFound bool) (bool, error) {
