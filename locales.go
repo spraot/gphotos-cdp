@@ -172,6 +172,31 @@ func initLocales() error {
 		}
 	}
 
+	if _, exists := locales["de"]; !exists {
+		locales["de"] = GPhotosLocale{
+			SelectAllPhotosLabel:   NodeLabelMatch{"startsWith", "Alle Fotos mit diesem Zeitstempel auswählen"},
+			FileNameLabel:          NodeLabelMatch{"startsWith", "Dateiname:"},
+			DateLabel:              NodeLabelMatch{"startsWith", "Datum der Aufnahme:"},
+			Today:                  "Heute",
+			Yesterday:              "Gestern",
+			TimeLabel:              NodeLabelMatch{"startsWith", "Uhrzeit der Aufnahme:"},
+			TzLabel:                NodeLabelMatch{"startsWith", "GMT"},
+			ViewPreviousPhotoMatch: NodeLabelMatch{"equals", "Vorheriges Foto ansehen"},
+			MoreOptionsLabel:       NodeLabelMatch{"equals", "Weitere Optionen"},
+			// The German menu label uses non-breaking spaces ("Herunterladen - Umschalttaste + D"),
+			// so an exact match fails; match on the prefix instead.
+			DownloadLabel:                   NodeLabelMatch{"startsWith", "Herunterladen"},
+			DownloadOriginalLabel:           NodeLabelMatch{"startsWith", "Original herunterladen"},
+			OpenInfoMatch:                   NodeLabelMatch{"equals", "Info öffnen"},
+			VideoStillProcessingDialogLabel: NodeLabelMatch{"startsWith", "Video still is processing"},
+			VideoStillProcessingStatusText:  "Video is still processing &amp; can be downloaded later",
+			NoWebpageFoundText:              "No webpage was found for the web address:",
+			NotNow:                          "Jetzt nicht",
+			ShortDayNames:                   []string{"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"},
+			LongDayNames:                    []string{"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"},
+			ShortMonthNames:                 []string{"Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"},
+		}
+	}
 	return nil
 }
 

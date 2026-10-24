@@ -337,3 +337,71 @@ fr:
     - "oct"
     - "nov"
     - "déc"
+de:
+  selectAllPhotosLabel:
+    matchType: startsWith
+    matchValue: "Alle Fotos mit diesem Zeitstempel auswählen"
+  fileNameLabel:
+    matchType: startsWith
+    matchValue: "Dateiname:"
+  dateLabel:
+    matchType: startsWith
+    matchValue: "Datum der Aufnahme:"
+  today: "Heute"
+  yesterday: "Gestern"
+  timeLabel:
+    matchType: startsWith
+    matchValue: "Uhrzeit der Aufnahme:"
+  tzLabel:
+    matchType: startsWith
+    matchValue: "GMT"
+  viewPreviousPhotoMatch:
+    matchType: equals
+    matchValue: "Vorheriges Foto ansehen"
+  moreOptionsLabel:
+    matchType: equals
+    matchValue: "Weitere Optionen"
+  downloadLabel:
+    matchType: startsWith
+    matchValue: "Herunterladen"
+  downloadOriginalLabel:
+    matchType: startsWith
+    matchValue: "Original herunterladen"
+  openInfoMatch:
+    matchType: equals
+    matchValue: "Info öffnen"
+  videoStillProcessingDialogLabel:
+    matchType: startsWith
+    matchValue: "Video still is processing"
+  videoStillProcessingStatusText: "Video is still processing &amp; can be downloaded later"
+  noWebpageFoundText: "No webpage was found for the web address:"
+  notNow: "Jetzt nicht"
+  shortDayNames:
+    - "So"
+    - "Mo"
+    - "Di"
+    - "Mi"
+    - "Do"
+    - "Fr"
+    - "Sa"
+  longDayNames:
+    - "Sonntag"
+    - "Montag"
+    - "Dienstag"
+    - "Mittwoch"
+    - "Donnerstag"
+    - "Freitag"
+    - "Samstag"
+  shortMonthNames:
+    - "Jan"
+    - "Feb"
+    - "Mär"
+    - "Apr"
+    - "Mai"
+    - "Jun"
+    - "Jul"
+    - "Aug"
+    - "Sep"
+    - "Okt"
+    - "Nov"
+    - "Dez"
